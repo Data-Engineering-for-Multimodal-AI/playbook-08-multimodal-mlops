@@ -2,6 +2,8 @@
 
 This repository contains a comprehensive MLOps pipeline for processing, analyzing, and deploying models based on Inertial Navigation System (INS) data. The project demonstrates best practices for building robust, maintainable, and scalable machine learning operations pipelines.
 
+![MLOps Pipeline Architecture](https://github.com/Data-Engineering-for-Multimodal-AI/pb8-mm-mlops-pipeline/raw/main/docs/images/pipeline_architecture.png)
+
 ## Project Overview
 
 This pipeline processes data from the Oxford RobotCar dataset, focusing on INS (Inertial Navigation System) data which provides filtered, navigation-ready information about position, velocity, and orientation, making it ideal for autonomous vehicle applications.
@@ -127,3 +129,91 @@ For production deployment, the pipeline is orchestrated using Apache Airflow:
 ## MLOps Enhancements
 
 The `enhancements_modules` directory contains lightweight components to improve your MLOps pipeline, including schema validation, feature store implementation, CI/CD automation, and more. Refer to the directory's README for detailed documentation.
+
+## Drift Detection and Automated Retraining
+
+One of the key features of this pipeline is its ability to detect data drift and automatically retrain models when needed:
+
+1. The monitoring service tracks predictions and calculates statistical distributions
+2. When drift is detected beyond configured thresholds, an alert is generated
+3. The drift handler component picks up alerts and triggers model retraining
+4. New models are evaluated and deployed only if they perform better than current ones
+
+This closed-loop architecture ensures models stay accurate as data distributions evolve over time.
+
+## Troubleshooting
+
+### Common Issues
+
+#### Airflow Database Issues
+
+If you encounter SQLite errors or "UNIQUE constraint failed" when running Airflow:
+
+```bash
+# Reset the Airflow database
+export AIRFLOW_HOME=$(pwd)/pipeline/airflow
+airflow db reset -y
+airflow db init
+airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.org
+```
+
+#### Model Dimension Mismatch
+
+If you encounter "ValueError: X has 6 features, but StandardScaler is expecting X features", use the simplified model service:
+
+```bash
+# Use the simplified model service that works with raw INS features
+python -m pipeline.src.serve.simple_model_service
+```
+
+#### Package Import Errors
+
+If you encounter import errors:
+
+```bash
+# Make sure to set the PYTHONPATH
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+```
+
+## Data Sources
+
+This pipeline works with the Oxford RobotCar dataset:
+
+- **Oxford RobotCar Dataset**: https://robotcar-dataset.robots.ox.ac.uk/
+- We specifically use the INS data which provides filtered navigation sensor readings
+
+## Contributing
+
+Contributions are welcome! Please check out our [contribution guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+```
+MIT License
+
+Copyright (c) 2025 Data Engineering for Multimodal AI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+```
+
+## Acknowledgments
+
+- Oxford Robotics Institute for providing the RobotCar dataset
+- Apache Airflow team for their excellent workflow orchestration framework
+- The MLOps community for best practices and inspiration
