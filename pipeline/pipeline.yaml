@@ -1,0 +1,103 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: forge-multimodal-mlops-
+spec:
+  entrypoint: forge-pipeline
+  arguments:
+    parameters:
+    - name: simulate-drift
+      value: "true"
+  
+  templates:
+  - name: forge-pipeline
+    inputs:
+      parameters:
+      - name: simulate-drift
+    dag:
+      tasks:
+      - name: ingest
+        template: ingest-task
+      
+      - name: feature-extraction
+        template: feature-extraction-task
+        dependencies:
+          - ingest
+      
+      - name: alignment
+        template: alignment-task
+        dependencies:
+          - feature-extraction
+      
+      - name: training
+        template: training-task
+        dependencies:
+          - alignment
+      
+      - name: drift-detection
+        template: drift-detection-task
+        dependencies:
+          - alignment
+          - training
+        arguments:
+          parameters:
+          - name: simulate-drift
+            value: "{{inputs.parameters.simulate-drift}}"
+      
+      - name: retraining
+        template: retraining-task
+        dependencies:
+          - drift-detection
+        when: "{{tasks.drift-detection.outputs.parameters.drift-detected}} == true"
+  
+  - name: ingest-task
+    container:
+      image: forge-multimodal-mlops:latest
+      command: ["python", "-m", "src.ingest.video_ingest"]
+    
+  - name: feature-extraction-task
+    container:
+      image: forge-multimodal-mlops:latest
+      command: ["python", "-m", "src.features.video_features"]
+  
+  - name: alignment-task
+    container:
+      image: forge-multimodal-mlops:latest
+      command: ["python", "-m", "src.align.temporal_alignment"]
+  
+  - name: training-task
+    container:
+      image: forge-multimodal-mlops:latest
+      command: ["python", "-m", "src.models.train"]
+  
+  - name: drift-detection-task
+    inputs:
+      parameters:
+      - name: simulate-drift
+    outputs:
+      parameters:
+      - name: drift-detected
+        valueFrom:
+          path: /tmp/drift-detected
+    container:
+      image: forge-multimodal-mlops:latest
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          python -m src.drift.drift_detector
+          # Extract drift detection results and save to output parameter
+          if [[ "$(cat experiments/drift_test/drift_results/drift_results_*.json | grep drift_detected | grep true)" != "" ]]; then
+            echo "true" > /tmp/drift-detected
+          else
+            echo "false" > /tmp/drift-detected
+          fi
+  
+  - name: retraining-task
+    container:
+      image: forge-multimodal-mlops:latest
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          # Run retraining with MLflow experiment tracking
+          python -c "from src.models.train import train_model; from src.utils import get_param; \
+                     train_model(experiment_name='retraining_pipeline');" 

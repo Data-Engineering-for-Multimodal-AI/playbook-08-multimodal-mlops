@@ -1,15 +1,12 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="MLOps_Enhancements",
+    name="mlops-pipeline",
     version="0.1.0",
-    packages=find_packages(),
-    install_requires=[
-        "pydantic>=1.8.0",
-        "pyarrow>=7.0.0",
-        "pytest>=6.0.0",
-        "pytest-cov>=2.12.0",
-        "numpy>=1.20.0",
-        "pandas>=1.3.0"
-    ],
+    description="MLOps pipeline for Inertial Navigation System data",
+    author="MLOps Team",
+    author_email="team@example.com",
+    packages=find_packages(include=["pipeline", "pipeline.*", "enhancements_modules", "enhancements_modules.*"]),
+    install_requires=[],
+    python_requires=">=3.8",
 ) 

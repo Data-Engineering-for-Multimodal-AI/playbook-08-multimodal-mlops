@@ -1,0 +1,160 @@
+name: MLOps Pipeline CI/CD
+
+on:
+  push:
+    branches: [ main, master, dev ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov flake8 black
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Lint with flake8
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings
+        flake8 src/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Format check with black
+      run: |
+        black --check src/ tests/
+    
+    - name: Run tests
+      run: |
+        pytest tests/ --cov=src --cov-report=xml
+    
+    - name: Upload coverage report to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+  
+  build-package:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+    
+    - name: Build package
+      run: |
+        python -m build
+    
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: package
+        path: dist/
+  
+  drift-detection:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Run data drift detection
+      run: |
+        # Make experiments directory structure
+        mkdir -p experiments/monitoring/data_drift
+        
+        # Run drift detection script on test data
+        python -m src.drift.detect_drift --input_features experiments/features/ins --output_path experiments/monitoring
+    
+    - name: Check for drift alerts
+      id: check_drift
+      run: |
+        # Check if any drift alerts were generated
+        DRIFT_FILES=$(find experiments/monitoring/data_drift -name "drift_alert_*.json" | wc -l)
+        echo "Number of drift alerts: $DRIFT_FILES"
+        if [ $DRIFT_FILES -gt 0 ]; then
+          echo "::set-output name=drift_detected::true"
+        else
+          echo "::set-output name=drift_detected::false"
+        fi
+    
+    - name: Trigger model retraining if drift detected
+      if: steps.check_drift.outputs.drift_detected == 'true'
+      run: |
+        echo "Data drift detected! Triggering model retraining..."
+        # In a real system, this would trigger a model retraining pipeline
+        # For example, by calling an API endpoint or triggering another GitHub Actions workflow
+  
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build-package, drift-detection]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Download package artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: package
+        path: dist/
+    
+    - name: Deploy to staging
+      run: |
+        echo "Deploying to staging environment..."
+        # In a real system, this would deploy the model to a staging environment
+        # For example, using AWS CLI to deploy to Lambda or SageMaker
+    
+    - name: Run integration tests
+      run: |
+        echo "Running integration tests in staging environment..."
+        # In a real system, this would run integration tests against the staging deployment
+    
+    - name: Deploy to production
+      if: success()
+      run: |
+        echo "Deploying to production environment..."
+        # In a real system, this would deploy the model to production 

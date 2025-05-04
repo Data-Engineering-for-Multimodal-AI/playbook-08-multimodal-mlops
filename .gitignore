@@ -20,6 +20,7 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -98,7 +99,11 @@ dmypy.json
 
 # Project specific
 demo_output/
-experiments/
+# Exclude all in experiments except .gitkeep files
+experiments/*
+!experiments/*/
+experiments/*/*
+!experiments/*/.gitkeep
 *.log
 *.db
 .DS_Store
@@ -106,6 +111,7 @@ experiments/
 # Airflow
 airflow.cfg
 airflow.db
+airflow.db-*
 airflow-webserver.pid
 webserver_config.py
 logs/
@@ -114,6 +120,26 @@ logs/
 .vscode/
 .idea/
 
-# Exclude specific files
-playbook.pdf
-mlops_pipeline.bundle 
+# Log files
+*.log
+airflow_*.log
+
+# Large data files
+*.bundle
+*.zip
+# Exclude all in data except .gitkeep files
+data/*
+!data/*/
+data/*/*
+!data/*/.gitkeep
+demo_output/
+oxfordrobocar_sample_small/
+chunked_bundle/
+clean_repo/
+temp_repo/
+
+# Reorganization document - excluded as per request
+REORGANIZATION.md
+
+# MLflow
+mlruns/ 
