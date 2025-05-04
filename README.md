@@ -4,14 +4,17 @@ This repository contains a comprehensive MLOps pipeline for processing, analyzin
 
 ## Project Overview
 
-The MLOps pipeline handles INS data through several stages:
+This pipeline processes data from the Oxford RobotCar dataset, focusing on INS (Inertial Navigation System) data which provides filtered, navigation-ready information about position, velocity, and orientation, making it ideal for autonomous vehicle applications.
 
-1. **Data Ingestion**: Processing raw INS data from sensors
-2. **Feature Engineering**: Extracting meaningful features from INS data
-3. **Model Training & Evaluation**: Training and validating ML models
-4. **Drift Detection**: Monitoring for data and concept drift
-5. **Deployment**: Automated deployment of models
-6. **Monitoring**: Continuous monitoring of model performance
+The pipeline consists of these key stages:
+
+1. **Data Ingestion**: Processing raw INS data from sensors and video frames
+2. **Feature Engineering**: Extracting meaningful features with sliding windows from INS data
+3. **Model Training**: Training and validating ML models with aligned multimodal data
+4. **Drift Detection**: Monitoring for data distribution changes over time
+5. **Automated Retraining**: Using drift signals to trigger model retraining
+6. **Model Serving**: Providing predictions through a REST API
+7. **MLOps Enhancements**: Schema validation, feature store, and monitoring
 
 The project uses Apache Airflow for workflow orchestration, implementing a full CI/CD pipeline with automated testing and deployment.
 
@@ -25,18 +28,32 @@ The project uses Apache Airflow for workflow orchestration, implementing a full 
 │   ├── ci/                       # CI/CD configuration
 │   └── demo.py                   # Demo script
 ├── src/                          # Core source code
-│   ├── data/                     # Data processing modules
+│   ├── ingest/                   # Data processing modules
+│   │   ├── ins_ingest.py         # INS data ingestion 
+│   │   └── video_ingest.py       # Video frame processing
 │   ├── features/                 # Feature engineering modules
+│   │   ├── ins_features.py       # INS feature extraction
+│   │   └── extract_ins_features.py # Combined extraction script
+│   ├── align/                    # Data alignment
+│   │   └── temporal_alignment.py # Aligns INS and video data
 │   ├── models/                   # Model training and evaluation
+│   │   ├── train.py              # Model training script
+│   │   └── predict.py            # Model inference
 │   ├── drift/                    # Drift detection
+│   │   └── drift_detector.py     # Detects data distribution shifts
 │   ├── monitoring/               # Model monitoring
+│   │   ├── monitoring_service.py # Tracks predictions and drift
+│   │   ├── drift_handler.py      # Handles drift detection
+│   │   └── dashboard.py          # Monitoring visualization
 │   └── serve/                    # Model serving
-├── dags/                         # Airflow DAG definitions
-├── experiments/                  # Output directory for experiments
-│   ├── features/                 # Extracted features
-│   ├── models/                   # Trained models
-│   └── monitoring/               # Monitoring data
-├── test_schemas.py               # Schema validation test script
+│       ├── model_service.py      # Model loading and prediction
+│       ├── simple_model_service.py # Simplified model service
+│       └── api.py                # FastAPI application
+├── airflow/                      # Airflow DAG definitions
+│   └── dags/                     # DAG script for pipeline
+│       └── ins_mlops_pipeline.py # Main pipeline DAG
+├── config/                       # Configuration files
+├── run_pipeline.py               # Script to run the full pipeline
 └── setup.py                      # Package installation script
 ```
 
@@ -64,46 +81,149 @@ The project uses Apache Airflow for workflow orchestration, implementing a full 
 
 3. Install the required packages:
    ```bash
+   pip install -r requirements.txt
    pip install -r MLOps_Enhancements/requirements-enhancements.txt
    pip install -e .
    ```
 
-4. Set up Apache Airflow:
-   ```bash
-   pip install apache-airflow
-   airflow db init
-   airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com
-   ```
-
-5. Create necessary directories:
+4. Set up necessary directories:
    ```bash
    mkdir -p experiments/{features,models,monitoring,feature_store}
    ```
 
-## Usage Guide
+## Pipeline Execution
 
-### Running the Pipeline with Airflow
+### Running the Complete Pipeline
 
-1. Start Airflow services:
+The simplest way to run the entire pipeline is using the `run_pipeline.py` script:
+
+```bash
+python run_pipeline.py
+```
+
+This will execute all steps: data ingestion, feature extraction, model training, drift detection, and deployment.
+
+### Step-by-Step Execution
+
+Alternatively, you can execute each stage of the pipeline individually:
+
+#### 1. Data Ingestion
+
+Process INS data from the Oxford RobotCar dataset:
+
+```bash
+python -m src.ingest.ins_ingest
+```
+
+Process video frames:
+
+```bash
+python -m src.ingest.video_ingest
+```
+
+#### 2. Feature Extraction
+
+Extract features from INS data:
+
+```bash
+python -m src.features.ins_features
+```
+
+Extract features from video data:
+
+```bash
+python -m src.features.video_features
+```
+
+#### 3. Data Alignment
+
+Align INS and video data based on timestamps:
+
+```bash
+python -m src.align.temporal_alignment
+```
+
+#### 4. Model Training
+
+Train a model using the aligned features:
+
+```bash
+python -m src.models.train
+```
+
+#### 5. Model Evaluation
+
+Evaluate the model performance:
+
+```bash
+python -m src.models.predict
+```
+
+#### 6. Model Serving
+
+Start the prediction service:
+
+```bash
+python -m src.serve.simple_model_service
+```
+
+Start the FastAPI server to serve predictions:
+
+```bash
+python -m src.serve.api
+```
+
+Test the API with a client:
+
+```bash
+python -m src.serve.http_client
+```
+
+#### 7. Monitoring
+
+Start the monitoring dashboard:
+
+```bash
+streamlit run src/monitoring/dashboard.py
+```
+
+Generate simulated traffic for monitoring:
+
+```bash
+python -m src.monitoring.simple_simulate_traffic --requests 150 --drift
+```
+
+### Orchestration with Airflow
+
+For production deployment, the pipeline is orchestrated using Apache Airflow:
+
+1. Set up Airflow:
    ```bash
-   airflow webserver -p 8080 &
-   airflow scheduler &
+   export AIRFLOW_HOME=$(pwd)/airflow
+   airflow db reset -y  # Only if starting fresh
+   airflow db init
+   airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.org
    ```
 
-2. Create a symlink to the DAG files:
+2. Start Airflow components (each in a separate terminal):
    ```bash
-   ln -s $(pwd)/dags/* ~/airflow/dags/
+   export AIRFLOW_HOME=$(pwd)/airflow
+   airflow scheduler
+   
+   export AIRFLOW_HOME=$(pwd)/airflow
+   airflow webserver -p 8080
+   
+   export AIRFLOW_HOME=$(pwd)/airflow
+   airflow triggerer
    ```
 
-3. Navigate to http://localhost:8080 in your browser and login with the credentials you created.
+3. Access the Airflow UI at http://localhost:8080 and enable the `ins_mlops_pipeline` DAG.
 
-4. Enable the `ins_mlops_pipeline` DAG from the Airflow UI.
+## MLOps Enhancements
 
-### Using MLOps Enhancements
+The `MLOps_Enhancements` directory contains lightweight components to improve your MLOps pipeline:
 
-The `MLOps_Enhancements` directory contains lightweight components that can be integrated with existing ML pipelines:
-
-#### Schema Validation
+### Schema Validation
 
 ```python
 from MLOps_Enhancements.schemas.ins_schemas import INSDataPoint
@@ -120,7 +240,9 @@ valid_data = INSDataPoint(
 )
 ```
 
-#### Feature Store
+### Feature Store
+
+Efficiently store and retrieve features with metadata:
 
 ```python
 from MLOps_Enhancements.feature_store.feature_store import FeatureStore
@@ -140,42 +262,53 @@ recent_features = feature_store.retrieve_features(
 )
 ```
 
-### Running the Demo
+## Drift Detection and Automated Retraining
 
-To see all components in action:
+The pipeline includes continuous monitoring for data drift:
+
+1. The `drift_detector.py` component constantly analyzes new data distributions
+2. When significant drift is detected, it automatically triggers retraining
+3. The `drift_handler.py` manages the retraining workflow
+4. New models are evaluated and deployed only if they perform better than the current model
+
+This closed-loop architecture ensures your model stays accurate as real-world data evolves.
+
+## Troubleshooting
+
+### Common Issues
+
+#### Airflow Database Issues
+
+If you encounter SQLite errors or "UNIQUE constraint failed: job.id" when running Airflow:
 
 ```bash
-python MLOps_Enhancements/demo.py
+# Reset the Airflow database
+export AIRFLOW_HOME=$(pwd)/airflow
+airflow db reset -y
+airflow db init
+airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.org
 ```
 
-This will:
-1. Generate sample INS data
-2. Validate it with schemas
-3. Extract features
-4. Store them in the feature store
-5. Retrieve and display the features
+#### Model Dimension Mismatch
 
-### Running Tests
+If you encounter "ValueError: X has 6 features, but StandardScaler is expecting 1343 features as input", use the simplified model service:
 
 ```bash
-pytest MLOps_Enhancements/tests/
-python test_schemas.py
+# Use the simplified model service that works with the 6 raw INS features
+python -m src.serve.simple_model_service
+python -m src.serve.simple_api
 ```
 
-## CI/CD Pipeline
+This happens because the full model was trained on engineered features, but for demonstration, we're allowing direct inference with the 6 raw INS values (velocity_north, velocity_east, velocity_down, roll, pitch, yaw).
 
-The repository includes a GitHub Actions workflow that:
+#### Package Import Errors
 
-1. Runs tests on each push
-2. Checks for code quality with flake8 and black
-3. Performs drift detection on new data
-4. Automatically deploys to staging and production when appropriate
+If you encounter import errors when running scripts:
 
-To use it, simply copy the `.github/workflows/mlops-pipeline-ci.yml` file to your own repository.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+```bash
+# Make sure to set the PYTHONPATH
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+```
 
 ## License
 
