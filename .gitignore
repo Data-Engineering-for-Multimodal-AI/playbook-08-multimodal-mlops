@@ -112,4 +112,7 @@ logs/
 
 # Editor settings
 .vscode/
-.idea/ 
+.idea/
+
+# Exclude specific files
+playbook.pdf 
