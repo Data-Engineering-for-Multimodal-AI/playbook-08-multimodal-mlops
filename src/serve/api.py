@@ -1,0 +1,124 @@
+import os
+import json
+import time
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Dict, Any, List, Optional, Union
+
+from src.serve.model_service import INSPredictionService
+from src.monitoring.monitoring_service import get_monitor
+
+# Create FastAPI app
+app = FastAPI(
+    title="INS Prediction API",
+    description="API for making predictions using INS data",
+    version="1.0.0"
+)
+
+# Initialize prediction service
+service = INSPredictionService()
+
+# Initialize monitoring
+monitor = get_monitor()
+
+# Models for request and response
+class INSData(BaseModel):
+    velocity_north: float
+    velocity_east: float
+    velocity_down: float
+    roll: float = 0.0
+    pitch: float = 0.0
+    yaw: float = 0.0
+    
+class PredictionResponse(BaseModel):
+    prediction: int
+    probability: float
+    prediction_text: str
+    timestamp: int
+
+class ErrorResponse(BaseModel):
+    error: str
+    
+# Routes
+@app.get("/")
+async def root():
+    return {"message": "INS Prediction API", "version": "1.0.0"}
+
+@app.get("/health")
+async def health():
+    # Check if model is loaded or can be loaded
+    if not service.is_loaded:
+        if not service.load():
+            return {"status": "error", "message": "Could not load model"}
+    
+    return {"status": "healthy", "message": "Model is loaded and ready"}
+
+@app.post("/predict", response_model=PredictionResponse)
+async def predict(data: INSData):
+    """
+    Make a prediction using the INS data.
+    """
+    if not service.is_loaded:
+        success = service.load()
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to load model")
+    
+    # Prepare features
+    features = {
+        "velocity_north": data.velocity_north,
+        "velocity_east": data.velocity_east,
+        "velocity_down": data.velocity_down,
+        "roll": data.roll,
+        "pitch": data.pitch,
+        "yaw": data.yaw
+    }
+    
+    # Get prediction
+    prediction, probability = service.predict(features)
+    
+    # Get text label
+    prediction_text = "Higher East Velocity" if prediction == 1 else "Lower East Velocity"
+    
+    # Create timestamp
+    timestamp = int(time.time() * 1000)
+    
+    # Log the prediction for monitoring
+    monitor.log_prediction(features, prediction, probability, timestamp)
+    
+    return {
+        "prediction": prediction,
+        "probability": probability,
+        "prediction_text": prediction_text,
+        "timestamp": timestamp
+    }
+
+@app.post("/feedback")
+async def feedback(timestamp: int, actual_label: int):
+    """
+    Log feedback for a previous prediction.
+    
+    Args:
+        timestamp: The timestamp of the prediction
+        actual_label: The actual ground truth label
+    """
+    monitor.log_feedback(timestamp, actual_label)
+    
+    return {"status": "success", "message": "Feedback recorded"}
+
+@app.post("/batch_predict")
+async def batch_predict(data_list: List[INSData]):
+    results = []
+    for data in data_list:
+        try:
+            result = service.predict_from_ins_data(data.dict())
+            results.append(result)
+        except Exception as e:
+            results.append({"error": str(e)})
+    
+    return results
+
+
+# Run with: uvicorn src.serve.api:app --reload
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000) 
