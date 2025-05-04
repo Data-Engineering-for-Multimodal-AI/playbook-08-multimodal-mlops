@@ -115,4 +115,5 @@ logs/
 .idea/
 
 # Exclude specific files
-playbook.pdf 
+playbook.pdf
+mlops_pipeline.bundle 
