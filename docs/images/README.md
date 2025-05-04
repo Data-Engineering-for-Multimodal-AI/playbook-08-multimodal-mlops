@@ -2,39 +2,36 @@
 
 This directory contains architecture diagrams for the MLOps pipeline.
 
-## pipeline_architecture.png
+## MLOps Pipeline Architecture
 
-This image should represent the end-to-end MLOps pipeline with the following components:
+Our pipeline architecture follows a closed-loop MLOps workflow that emphasizes continuous monitoring and automated retraining.
 
-1. **Data Ingestion** → Data from Oxford RobotCar dataset (INS and video data)
-2. **Feature Engineering** → Extracting features with sliding windows
-3. **Model Training** → Training ML models with aligned multimodal data
-4. **Model Registry** → Storing and versioning models
-5. **Drift Detection** → Monitoring for data distribution changes
-6. **Automated Retraining** → Trigger based on drift detection
-7. **Model Serving** → REST API for predictions
+The `pipeline_architecture.md` file contains a Mermaid diagram that visualizes the end-to-end flow of our MLOps pipeline with the following components:
 
-The diagram should show the flow between components and highlight the closed-loop nature of the pipeline with drift detection feeding back to retraining.
+1. **Data Ingestion** (Light Blue): Processes raw INS and video data from the Oxford RobotCar dataset
+2. **Feature Engineering** (Light Green): Extracts meaningful features using sliding windows
+3. **Model Training** (Light Purple): Trains and validates ML models with aligned multimodal data
+4. **Model Registry** (Light Purple): Stores and versions trained models
+5. **Model Serving** (Light Yellow): Provides predictions through a REST API
+6. **Drift Detection** (Light Orange): Monitors for data distribution changes over time
+7. **Automated Retraining** (Light Orange): Triggers new model training based on drift signals
 
-Recommended tools for creating the diagram:
-- draw.io
-- Lucidchart
-- Mermaid
-- Microsoft Visio
+The diagram highlights the closed-loop nature of our architecture: 
+- Data flows from ingestion through feature engineering to model training
+- Trained models are registered and deployed to the serving layer
+- The serving layer generates predictions which are monitored for drift
+- When significant drift is detected, automated retraining is triggered
+- Newly trained models are registered and replace the serving model if they perform better
 
-Example of a text-based representation in Mermaid:
+This architecture ensures our models remain accurate even as the underlying data distributions evolve over time, implementing true ML automation with human oversight.
 
-```mermaid
-graph LR
-    A[Data Ingestion] --> B[Feature Engineering]
-    B --> C[Model Training]
-    C --> D[Model Registry]
-    D --> E[Model Serving]
-    F[Drift Detection] --> G[Automated Retraining]
-    G --> D
-    E --> F
-    style D fill:#f9f,stroke:#333,stroke-width:2px
-    style G fill:#bbf,stroke:#333,stroke-width:2px
-```
+### Viewing the Diagram
 
-Please replace this README with the actual diagram image. 
+GitHub automatically renders Mermaid diagrams in markdown files. To view the diagram:
+1. Open `pipeline_architecture.md` directly in GitHub
+2. The diagram will be rendered automatically in the GitHub interface
+
+Alternatively, you can use any Mermaid-compatible viewer:
+- [Mermaid Live Editor](https://mermaid-js.github.io/mermaid-live-editor/)
+- VS Code with the Mermaid extension
+- Obsidian, which natively supports Mermaid 

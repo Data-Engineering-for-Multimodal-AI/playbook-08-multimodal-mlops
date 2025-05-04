@@ -2,7 +2,7 @@
 
 This repository contains a comprehensive MLOps pipeline for processing, analyzing, and deploying models based on Inertial Navigation System (INS) data. The project demonstrates best practices for building robust, maintainable, and scalable machine learning operations pipelines.
 
-![MLOps Pipeline Architecture](https://github.com/Data-Engineering-for-Multimodal-AI/pb8-mm-mlops-pipeline/raw/main/docs/images/pipeline_architecture.png)
+View our [Pipeline Architecture Diagram](docs/images/pipeline_architecture.md)
 
 ## Project Overview
 
