@@ -1,4 +1,4 @@
-pydantic>=1.8.0
+pydantic>=2.5
 pyarrow>=7.0.0
 pytest>=6.0.0
 pytest-cov>=2.12.0

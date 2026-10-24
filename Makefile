@@ -1,4 +1,4 @@
-.PHONY: setup venv clean-env clean-data test lint run-pipeline run-ingest run-features run-align run-train run-drift
+.PHONY: setup venv install-deps clean-env clean-data smoke test lint run-pipeline run-ingest run-features run-align run-train run-drift closed-loop serve dashboard mlflow-ui
 
 # Variables
 VENV_NAME := forge-env
@@ -21,6 +21,11 @@ venv:
 install-deps:
 	@echo "Installing dependencies"
 	@$(VENV_PIP) install -r requirements.txt
+	@$(VENV_PIP) install pytest flake8 black
+
+# Smoke tests with uv (the whole pipeline on the sample data; a few minutes on CPU)
+smoke:
+	uv run pytest -q
 
 # Clean environments and data
 clean-env:
@@ -28,19 +33,21 @@ clean-env:
 	@rm -rf $(VENV_NAME)
 
 clean-data:
-	@echo "Cleaning experiment data"
-	@rm -rf experiments/*
+	@echo "Cleaning experiment data (keeps the experiments/*/.gitkeep files)"
+	@find experiments -mindepth 1 ! -name .gitkeep ! -type d -delete
+	@find experiments -mindepth 1 -type d -empty ! -path 'experiments/features' ! -path 'experiments/models' ! -path 'experiments/monitoring' ! -path 'experiments/feature_store' -delete
+	@rm -rf logs
 
 # Run tests
 test: test-unit test-integration
 
 test-unit:
 	@echo "Running unit tests"
-	@$(VENV_PYTHON) -m pytest tests/test_alignment.py tests/test_drift.py tests/test_schema_validation.py -v
+	@$(VENV_PYTHON) -m pytest tests/test_alignment.py tests/test_drift.py tests/test_schema_validation.py enhancements_modules/tests -v
 
 test-integration:
 	@echo "Running integration tests"
-	@$(VENV_PYTHON) -m pytest tests/test_integration.py -v
+	@$(VENV_PYTHON) -m pytest tests/test_integration.py tests/test_smoke.py -v
 
 # Lint code
 lint:
@@ -61,7 +68,7 @@ run-ingest:
 run-features:
 	@echo "Running feature extraction stage"
 	@$(VENV_PYTHON) -m src.features.video_features
-	@$(VENV_PYTHON) -m src.features.imu_features
+	@$(VENV_PYTHON) -m src.features.extract_ins_features
 
 run-align:
 	@echo "Running alignment stage"
@@ -69,16 +76,28 @@ run-align:
 
 run-train:
 	@echo "Running model training stage"
-	@$(VENV_PYTHON) -m src.models.train
+	@$(VENV_PYTHON) -m src.models.train_model
+	@$(VENV_PYTHON) -m src.models.evaluate_model
 
 run-drift:
 	@echo "Running drift detection and retraining"
 	@$(VENV_PYTHON) -m src.drift.drift_detector
 
-# Use 'pipeline.yaml' for orchestration with Vertex AI or Kubeflow
-create-pipeline-dag:
-	@echo "Creating pipeline DAG for Vertex AI or Kubeflow"
-	@$(VENV_PYTHON) -m src.utils.create_pipeline_dag
+# Replay the end of the drive with a sensor fault: drift alerts, retraining, promotion
+closed-loop:
+	@$(VENV_PYTHON) -m src.monitoring.closed_loop
+
+# Serve the champion model on http://127.0.0.1:8000
+serve:
+	@$(VENV_PYTHON) -m uvicorn src.serve.api:app --host 127.0.0.1 --port 8000
+
+dashboard:
+	@$(VENV_BIN)/streamlit run src/monitoring/dashboard.py --server.address 127.0.0.1
+
+mlflow-ui:
+	@$(VENV_BIN)/mlflow ui --backend-store-uri sqlite:///experiments/mlflow.db --host 127.0.0.1
+
+# pipeline.yaml is an Argo Workflow for Kubernetes; it needs a container image of this repository
 
 # Default target
 all: setup test lint run-pipeline 
