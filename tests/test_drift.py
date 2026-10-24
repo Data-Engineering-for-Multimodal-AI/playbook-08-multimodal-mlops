@@ -97,52 +97,47 @@ def test_detect_drift():
     assert 'error' in drift_results['features']['missing_feature']
 
 
-def test_inject_drift():
-    # Create a test IMU dataframe
+def test_inject_drift(tmp_path):
+    # Create a test INS dataframe (the first edition's test used accelerometer and gyroscope
+    # columns, which the INS data doesn't have)
     timestamps = np.arange(1000000, 2000000, 10000)
+    rng = np.random.default_rng(0)
     imu_data = pd.DataFrame({
         'timestamp': timestamps,
-        'acceleration_x': np.random.normal(0, 1, len(timestamps)),
-        'acceleration_y': np.random.normal(0, 1, len(timestamps)),
-        'acceleration_z': np.random.normal(0, 1, len(timestamps)),
-        'gyroscope_x': np.random.normal(0, 0.1, len(timestamps)),
-        'gyroscope_y': np.random.normal(0, 0.1, len(timestamps)),
-        'gyroscope_z': np.random.normal(0, 0.1, len(timestamps))
+        'velocity_north': rng.normal(0, 1, len(timestamps)),
+        'velocity_east': rng.normal(0, 1, len(timestamps)),
+        'velocity_down': rng.normal(0, 0.1, len(timestamps)),
+        'roll': rng.normal(0, 0.01, len(timestamps)),
+        'pitch': rng.normal(0, 0.01, len(timestamps)),
+        'yaw': rng.normal(1.5, 0.1, len(timestamps))
     })
     
     # Create a temporary file
-    temp_dir = 'temp_test_dir'
+    temp_dir = tmp_path
     os.makedirs(temp_dir, exist_ok=True)
     temp_file = os.path.join(temp_dir, 'test_imu.csv')
     imu_data.to_csv(temp_file, index=False)
     
-    try:
-        # Test injecting drift
-        drifted_df = inject_drift(temp_file, output_path=temp_dir, noise_scale=0.5, frequency_change=0.2)
-        
-        # Verify that the drifted data is different from the original
-        assert not drifted_df.equals(imu_data)
-        
-        # Verify that the shape is changed due to frequency resampling
-        assert drifted_df.shape[0] != imu_data.shape[0]
-        
-        # Verify that the values are not the same due to noise injection
-        for col in ['acceleration_x', 'acceleration_y', 'acceleration_z']:
-            assert not np.allclose(drifted_df[col].values, imu_data[col].values)
+    # Test injecting drift
+    drifted_df = inject_drift(temp_file, output_path=temp_dir, noise_scale=0.5, frequency_change=0.2)
     
-    finally:
-        # Clean up
-        os.remove(temp_file)
-        if os.path.exists(os.path.join(temp_dir, 'imu_drifted.csv')):
-            os.remove(os.path.join(temp_dir, 'imu_drifted.csv'))
-        if os.path.exists(os.path.join(temp_dir, 'drift_injection_summary.json')):
-            os.remove(os.path.join(temp_dir, 'drift_injection_summary.json'))
-        os.rmdir(temp_dir)
+    # Verify that the drifted data is different from the original
+    assert not drifted_df.equals(imu_data)
+    
+    # Verify that the shape is changed due to frequency resampling
+    assert drifted_df.shape[0] != imu_data.shape[0]
+    
+    # Verify that the values are not the same due to noise injection
+    original = imu_data.set_index('timestamp')
+    kept = drifted_df[drifted_df['timestamp'].isin(original.index)]
+    for col in ['velocity_north', 'velocity_east', 'yaw']:
+        assert not np.allclose(kept[col].values, original.loc[kept['timestamp'], col].values)
+    
+
 
 
 if __name__ == "__main__":
     test_compute_ks_test()
     test_compute_wasserstein_distance()
     test_detect_drift()
-    test_inject_drift()
     print("All drift detection tests passed!") 

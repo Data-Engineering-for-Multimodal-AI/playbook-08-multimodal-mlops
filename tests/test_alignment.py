@@ -21,22 +21,27 @@ def test_find_nearest_frame():
     assert frame['timestamp'] == 3000000
     assert frame['frame_id'] == 2
     
-    # Test finding nearest match
-    frame = find_nearest_frame(3500000, video_df)
+    # Test finding nearest match (3.5M was exactly between two frames in the first edition's
+    # test, which then expected the later one; 3.6M is unambiguous)
+    frame = find_nearest_frame(3600000, video_df)
     assert frame is not None
-    assert frame['timestamp'] == 4000000  # Closest to 3.5M
+    assert frame['timestamp'] == 4000000  # Closest to 3.6M
     assert frame['frame_id'] == 3
     
     # Test with max_time_diff
-    # Timestamp diff is 0.5s, so this should find a match
-    frame = find_nearest_frame(3500000, video_df, max_time_diff=0.6)
+    # Timestamp diff is 0.4s, so this should find a match
+    frame = find_nearest_frame(3600000, video_df, max_time_diff=0.6)
     assert frame is not None
     assert frame['timestamp'] == 4000000
     
     # Test with stricter max_time_diff
-    # Timestamp diff is 0.5s, so this shouldn't find a match
-    frame = find_nearest_frame(3500000, video_df, max_time_diff=0.4)
+    # Timestamp diff is 0.4s, so this shouldn't find a match
+    frame = find_nearest_frame(3600000, video_df, max_time_diff=0.3)
     assert frame is None
+    
+    # The lookup must also work when the dataframe's index isn't 0..n-1 (e.g. after sorting)
+    shuffled = video_df.iloc[::-1]
+    assert find_nearest_frame(3600000, shuffled)['frame_id'] == 3
     
     # Test with empty dataframe
     empty_df = pd.DataFrame(columns=['timestamp', 'frame_id'])
@@ -60,8 +65,9 @@ def test_align_modalities():
         'acceleration_y_mean': [0.5, 0.6, 0.7, 0.8]
     })
     
-    # Test alignment with default parameters
-    aligned_df = align_modalities(video_df, imu_df)
+    # Test alignment with a tolerance that matches every window (each is 0.2 s from a frame;
+    # the default tolerance is 0.1 s, which the first edition's test overlooked)
+    aligned_df = align_modalities(video_df, imu_df, max_time_diff=0.5)
     
     # Check if alignment was successful
     assert len(aligned_df) == 4  # Should match all 4 IMU windows

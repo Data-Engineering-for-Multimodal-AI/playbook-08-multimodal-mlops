@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
 import logging
 
-from src.utils import get_pipeline_logger
+from src.utils import get_pipeline_logger, get_param
 
 logger = get_pipeline_logger("model_monitoring")
 
@@ -38,8 +38,18 @@ class ModelMonitor:
         os.makedirs(self.data_drift_dir, exist_ok=True)
         os.makedirs(self.performance_dir, exist_ok=True)
         
+        self.feedback_dir = os.path.join(self.log_dir, "feedback")
+        os.makedirs(self.feedback_dir, exist_ok=True)
+        
         # Initialize tracking dataframes
         self.predictions_df = pd.DataFrame()
+        self.batch_size = int(get_param('monitoring.batch_size', 100))
+        self.alert_count = 0
+        
+        # Statistics of the data the served model learned from (see set_reference). Without them,
+        # drift is measured against earlier batches, as in the first edition.
+        self.reference = None
+        self.model_version = None
         
         # Load historical feature statistics from disk
         self.feature_stats_df = self._load_historical_feature_stats()
@@ -47,6 +57,16 @@ class ModelMonitor:
         logger.info(f"Model monitoring initialized. Logs will be stored in {self.log_dir}")
         if not self.feature_stats_df.empty:
             logger.info(f"Loaded {len(self.feature_stats_df)} historical feature statistic records")
+    
+    def set_reference(self, reference_path: Optional[str]) -> None:
+        """Compare future batches with the training data of a model version (reference_v<N>.json)."""
+        if reference_path is None or not os.path.exists(reference_path):
+            self.reference = None
+            return
+        with open(reference_path) as f:
+            self.reference = json.load(f)
+        self.model_version = self.reference.get('model_version')
+        logger.info(f"Monitoring against the training data of model version {self.model_version}")
     
     def _load_historical_feature_stats(self) -> pd.DataFrame:
         """Load historical feature statistics from disk."""
@@ -96,12 +116,9 @@ class ModelMonitor:
             pd.DataFrame([record])
         ], ignore_index=True)
         
-        # Save periodically (every 100 records)
-        if len(self.predictions_df) % 100 == 0:
-            self._save_predictions()
-            
-            # Check for data drift
-            self._check_data_drift()
+        # Save and check for drift after every batch (monitoring.batch_size, 100 by default)
+        if len(self.predictions_df) % self.batch_size == 0:
+            self.end_batch()
             
         logger.debug(f"Logged prediction: {prediction} with probability {probability:.4f}")
     
@@ -132,6 +149,16 @@ class ModelMonitor:
             self._calculate_performance()
             
         logger.info(f"Logged feedback for prediction at {timestamp}: actual label {actual_label}")
+    
+    def end_batch(self) -> None:
+        """
+        Check the logged batch for drift, then save it.
+
+        The first edition saved first, which also cleared the batch, so the drift check that
+        followed always saw an empty batch and never ran.
+        """
+        self._check_data_drift()
+        self._save_predictions()
     
     def _save_predictions(self) -> None:
         """Save predictions to disk."""
@@ -196,6 +223,10 @@ class ModelMonitor:
         Args:
             current_stats: Current feature statistics to compare with history
         """
+        if self.reference is not None:
+            self._detect_drift_against_reference(current_stats)
+            return
+        
         # Need at least one previous record to detect drift
         if len(self.feature_stats_df) < 2:
             logger.info("Not enough historical data to detect drift")
@@ -251,18 +282,86 @@ class ModelMonitor:
                     }
         
         if drift_detected:
-            # Log the drift
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filepath = os.path.join(self.data_drift_dir, f"drift_alert_{timestamp}.json")
+            self._save_drift_alert(drift_metrics)
+    
+    def _detect_drift_against_reference(self, current_stats: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Z-score of this batch's mean for each monitored feature, in units of the feature's standard
+        deviation in the served model's training data. Above monitoring.drift_z_threshold is drift.
+        """
+        threshold = float(get_param('monitoring.drift_z_threshold', 2.0))
+        drift_metrics = {}
+        z_scores = {}
+        for feature, reference_mean in self.reference['mean'].items():
+            column = f"{feature}_mean"
+            reference_std = self.reference['std'].get(feature, 0.0)
+            if column not in current_stats or not reference_std:
+                continue
+            z_score = abs(float(current_stats[column]) - reference_mean) / reference_std
+            z_scores[feature] = z_score
+            if z_score > threshold:
+                drift_metrics[feature] = {
+                    "z_score": float(z_score),
+                    "current_mean": float(current_stats[column]),
+                    "historical_mean": float(reference_mean),
+                    "historical_std": float(reference_std)
+                }
+        self.last_drift = {
+            "max_z_score": max(z_scores.values(), default=0.0),
+            "drift_detected": bool(drift_metrics),
+            "features": sorted(drift_metrics, key=lambda f: -drift_metrics[f]["z_score"]),
+        }
+        if drift_metrics:
+            self._save_drift_alert(drift_metrics)
+        return self.last_drift
+    
+    def _save_drift_alert(self, drift_metrics: Dict[str, Any]) -> str:
+        """Write a drift_alert_*.json file, which the drift handler and the Airflow DAG read."""
+        self.alert_count += 1
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = os.path.join(self.data_drift_dir, f"drift_alert_{timestamp}_{self.alert_count:04d}.json")
+        
+        with open(filepath, "w") as f:
+            json.dump({
+                "timestamp": datetime.now().isoformat(),
+                "drift_detected": True,
+                "model_version": self.model_version,
+                "metrics": drift_metrics
+            }, f, indent=2)
             
-            with open(filepath, "w") as f:
-                json.dump({
-                    "timestamp": datetime.now().isoformat(),
-                    "drift_detected": True,
-                    "metrics": drift_metrics
-                }, f, indent=2)
-                
-            logger.warning(f"Data drift detected! Details saved to {filepath}")
+        logger.warning(f"Data drift detected! Details saved to {filepath}")
+        return filepath
+    
+    def record_labeled_batch(self, batch_id: int, X: np.ndarray, monitor_df: pd.DataFrame,
+                             labels: np.ndarray, predictions: np.ndarray) -> Dict[str, Any]:
+        """
+        Store a batch of served windows once their true labels are known, and score the model on it.
+
+        The stored batches (feedback/batch_*.parquet) are what the drift handler retrains on.
+        """
+        from sklearn.metrics import f1_score
+        batch = monitor_df.reset_index(drop=True).copy()
+        batch['features'] = list(np.asarray(X, dtype=float))
+        batch['label'] = np.asarray(labels).astype(int)
+        batch['prediction'] = np.asarray(predictions).astype(int)
+        batch.to_parquet(os.path.join(self.feedback_dir, f"batch_{batch_id:04d}.parquet"), index=False)
+        
+        correct = int((batch['prediction'] == batch['label']).sum())
+        metrics = {
+            "timestamp": datetime.now().isoformat(),
+            "batch": int(batch_id),
+            "model_version": self.model_version,
+            "num_samples": int(len(batch)),
+            "accuracy": float(correct / len(batch)),
+            "f1": float(f1_score(batch['label'], batch['prediction'], zero_division=0)),
+            "total_correct": correct,
+            "total_incorrect": int(len(batch) - correct),
+            "class_distribution": {str(k): int(v) for k, v in batch['label'].value_counts().items()},
+        }
+        filepath = os.path.join(self.performance_dir, f"performance_batch_{batch_id:04d}.json")
+        with open(filepath, "w") as f:
+            json.dump(metrics, f, indent=2)
+        return metrics
     
     def _calculate_performance(self) -> None:
         """Calculate model performance metrics based on feedback."""

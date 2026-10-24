@@ -110,8 +110,10 @@ def process_ins_data(df: pd.DataFrame, resample_rate: Optional[float] = None) ->
         # Reset index to get datetime as column
         df.reset_index(inplace=True)
         
-        # Convert datetime back to timestamp in microseconds
-        df['timestamp'] = df['datetime'].astype(np.int64) // 1000
+        # Convert datetime back to timestamp in microseconds. Ask for microseconds explicitly:
+        # pandas 3 keeps the resolution of the input (us here), so the first edition's
+        # `astype(np.int64) // 1000` (which assumed nanoseconds) turned microseconds into milliseconds
+        df['timestamp'] = df['datetime'].dt.as_unit('us').astype(np.int64)
     else:
         # Reset index if we didn't resample
         df.reset_index(inplace=True)

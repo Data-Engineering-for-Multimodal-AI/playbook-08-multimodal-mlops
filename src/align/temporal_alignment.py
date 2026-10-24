@@ -45,9 +45,11 @@ def find_nearest_frame(timestamp: int, video_df: pd.DataFrame,
     if video_df.empty:
         return None
     
-    # Find the index of the frame with the closest timestamp
+    # Find the index of the frame with the closest timestamp. idxmin returns an index label, so
+    # look it up with .loc (the first edition used .iloc, which picks the wrong frame once the
+    # dataframe has been re-sorted, as align_modalities does)
     closest_idx = (video_df['timestamp'] - timestamp).abs().idxmin()
-    closest_frame = video_df.iloc[closest_idx]
+    closest_frame = video_df.loc[closest_idx]
     
     # Check if the time difference is within the allowed maximum
     if max_time_diff is not None:
@@ -83,11 +85,18 @@ def align_modalities(video_df: pd.DataFrame, imu_df: pd.DataFrame,
     video_df = video_df.sort_values('timestamp')
     imu_df = imu_df.sort_values('timestamp')
     
+    # Only windows within max_time_diff of the camera's time range can match a frame (the sample
+    # has 3.6 s of frames in a 42-minute drive; checking every window took minutes)
+    if max_time_diff is not None:
+        margin = max_time_diff * 1e6
+        imu_df = imu_df[(imu_df['timestamp'] >= video_df['timestamp'].min() - margin) &
+                        (imu_df['timestamp'] <= video_df['timestamp'].max() + margin)]
+    
     logger.info(f"Aligning {len(imu_df)} IMU windows with {len(video_df)} video frames")
     
     # For each IMU window, find matching video frame
     for idx, imu_row in imu_df.iterrows():
-        if idx % 50 == 0:
+        if idx % 2000 == 0:
             logger.info(f"Processing alignment for IMU window {idx}/{len(imu_df)}")
             
         try:
@@ -149,6 +158,9 @@ def align_features(video_features_path: Optional[str] = None,
     
     if imu_features_path is None:
         imu_features_path = os.path.join(get_param('features.output_path'), 'imu', 'imu_features.parquet')
+        if not os.path.exists(imu_features_path):
+            # Written by `python -m src.features.extract_ins_features`
+            imu_features_path = os.path.join(get_param('features.output_path'), 'ins', 'ins_features.parquet')
     
     if output_path is None:
         output_path = get_param('alignment.output_path')
@@ -226,7 +238,9 @@ def prepare_ml_dataset(aligned_features_path: Optional[str] = None,
         aligned_features_path = os.path.join(get_param('alignment.output_path'), 'aligned_features.parquet')
     
     if output_path is None:
-        output_path = os.path.join(get_param('alignment.output_path'), 'ml_dataset')
+        # The training dataset (ml_dataset) is now built from every INS window by
+        # src.models.dataset; this multimodal one has only the windows with a camera frame
+        output_path = os.path.join(get_param('alignment.output_path'), 'multimodal_dataset')
     
     # Create output directory
     os.makedirs(output_path, exist_ok=True)

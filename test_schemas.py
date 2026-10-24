@@ -3,7 +3,7 @@
 Test script for validating INS schemas.
 """
 import numpy as np
-from MLOps_Enhancements.schemas.ins_schemas import (
+from enhancements_modules.schemas.ins_schemas import (
     INSDataPoint,
     INSFeatures,
     PredictionRequest,

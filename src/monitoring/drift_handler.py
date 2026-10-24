@@ -7,7 +7,9 @@ import time
 from datetime import datetime
 import sys
 
-from src.utils import get_pipeline_logger
+from typing import Optional
+
+from src.utils import get_pipeline_logger, get_param
 
 # Configure logging
 logger = get_pipeline_logger("drift_handler")
@@ -22,7 +24,8 @@ class DriftHandler:
                  model_dir: str = "experiments/models",
                  train_script: str = "src.models.train_model",
                  evaluate_script: str = "src.models.evaluate_model",
-                 restart_service: bool = True):
+                 restart_service: bool = True,
+                 api_url: str = "http://127.0.0.1:8000"):
         """
         Initialize the drift handler.
         
@@ -31,13 +34,16 @@ class DriftHandler:
             model_dir: Directory for model artifacts
             train_script: Script to run for model training
             evaluate_script: Script to run for model evaluation
-            restart_service: Whether to restart the model service after retraining
+            restart_service: Whether to tell the model service to reload after a promotion
+            api_url: Base URL of the model API
         """
         self.drift_dir = drift_dir
         self.model_dir = model_dir
         self.train_script = train_script
         self.evaluate_script = evaluate_script
         self.restart_service = restart_service
+        self.api_url = api_url
+        self.last_evaluation = None
         
         # Ensure directories exist
         os.makedirs(drift_dir, exist_ok=True)
@@ -81,14 +87,15 @@ class DriftHandler:
                 
             # Check severity of drift
             severe_drift = False
+            severe_threshold = float(get_param('monitoring.severe_z_threshold', 3.0))
             for feature, metrics in drift_data.get('metrics', {}).items():
-                # Consider z-score > 3.0 as severe drift
-                if metrics.get('z_score', 0) > 3.0:
+                # Consider z-score > 3.0 (monitoring.severe_z_threshold) as severe drift
+                if metrics.get('z_score', 0) > severe_threshold:
                     logger.warning(f"Severe drift detected in feature {feature} with z-score {metrics['z_score']}")
                     severe_drift = True
             
-            # Mark this alert as processed
-            self.processed_alerts.add(latest_alert)
+            # Mark this alert (and older ones) as processed
+            self.processed_alerts.update(new_alerts)
             
             if not severe_drift:
                 logger.info("Drift is not severe enough to trigger retraining")
@@ -101,27 +108,28 @@ class DriftHandler:
             logger.error(f"Error processing drift alert {latest_alert}: {str(e)}")
             return False
     
-    def retrain_model(self) -> bool:
+    def retrain_model(self, since: Optional[str] = None) -> bool:
         """
-        Execute model retraining process.
+        Retrain on the labeled production data, then let evaluate_model decide on promotion.
+        
+        Args:
+            since: Retrain on production batches from this one on (e.g. batch_0007.parquet)
         
         Returns:
-            True if retraining was successful, False otherwise
+            True if a retrained model was promoted to champion, False otherwise
         """
         try:
             logger.info("Starting model retraining...")
             
             # Run training script
-            logger.info(f"Running training script: {self.train_script}")
-            result = subprocess.run(
-                [sys.executable, "-m", self.train_script],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            logger.info(f"Training output: {result.stdout}")
+            command = [sys.executable, "-m", self.train_script, "--retrain"]
+            if since:
+                command += ["--since", since]
+            logger.info(f"Running training script: {' '.join(command[1:])}")
+            result = subprocess.run(command, check=True, capture_output=True, text=True)
+            logger.info(f"Training output: {result.stdout.strip()}")
             
-            # Run evaluation script
+            # Run evaluation script (promotes the new version only if it beats the champion)
             logger.info(f"Running evaluation script: {self.evaluate_script}")
             result = subprocess.run(
                 [sys.executable, "-m", self.evaluate_script],
@@ -129,14 +137,17 @@ class DriftHandler:
                 capture_output=True,
                 text=True
             )
-            logger.info(f"Evaluation output: {result.stdout}")
+            logger.info(f"Evaluation output: {result.stdout.strip()}")
+            with open(os.path.join(self.model_dir, "evaluation_summary.json")) as f:
+                self.last_evaluation = json.load(f)
+            promoted = self.last_evaluation.get("promoted", False)
             
-            # Restart service if needed
-            if self.restart_service:
+            # Tell the model service to serve the new champion
+            if promoted and self.restart_service:
                 self._restart_service()
                 
-            logger.info("Model retraining and deployment completed successfully")
-            return True
+            logger.info("Model retraining completed: " + ("new champion promoted" if promoted else "champion kept"))
+            return promoted
             
         except subprocess.CalledProcessError as e:
             logger.error(f"Error during model retraining: {str(e)}")
@@ -148,37 +159,24 @@ class DriftHandler:
             return False
     
     def _restart_service(self):
-        """Restart the model serving API."""
+        """Ask the running model API to load the new champion."""
         try:
-            logger.info("Restarting model service...")
-            
-            # Kill existing service (if any)
-            subprocess.run(
-                ["pkill", "-f", "uvicorn src.serve.simple_api:app"],
-                check=False  # Don't raise error if nothing to kill
-            )
-            
-            # Wait a moment
-            time.sleep(1)
-            
-            # Start new service
-            subprocess.Popen(
-                ["uvicorn", "src.serve.simple_api:app", "--reload"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            
-            logger.info("Model service restarted successfully")
+            import requests
+            logger.info(f"Asking the model service at {self.api_url} to reload...")
+            response = requests.post(f"{self.api_url}/reload", timeout=60)
+            response.raise_for_status()
+            logger.info(f"Model service now serves version {response.json().get('model_version')}")
             
         except Exception as e:
-            logger.error(f"Error restarting model service: {str(e)}")
+            logger.error(f"Could not reach the model service to reload it: {str(e)}")
     
-    def run_continuous_monitoring(self, check_interval: int = 300):
+    def run_continuous_monitoring(self, check_interval: int = 300, once: bool = False):
         """
         Continuously monitor for drift and retrain as needed.
         
         Args:
             check_interval: Time between checks in seconds (default: 5 minutes)
+            once: Check once and return (for schedulers such as Airflow or cron)
         """
         logger.info(f"Starting continuous drift monitoring with {check_interval}s interval")
         
@@ -186,6 +184,8 @@ class DriftHandler:
             while True:
                 if self.check_for_drift():
                     self.retrain_model()
+                if once:
+                    break
                 
                 logger.debug(f"Sleeping for {check_interval} seconds")
                 time.sleep(check_interval)
@@ -197,8 +197,15 @@ class DriftHandler:
 
 def main():
     """Run the drift handler in continuous monitoring mode."""
-    handler = DriftHandler()
-    handler.run_continuous_monitoring()
+    import argparse
+    parser = argparse.ArgumentParser(description="Retrain and promote when severe drift is detected")
+    parser.add_argument("--once", action="store_true", help="check once and exit")
+    parser.add_argument("--interval", type=int, default=300, help="seconds between checks")
+    parser.add_argument("--api-url", default=os.environ.get("API_URL", "http://127.0.0.1:8000"),
+                        help="model API to reload after a promotion")
+    args = parser.parse_args()
+    handler = DriftHandler(api_url=args.api_url)
+    handler.run_continuous_monitoring(check_interval=args.interval, once=args.once)
 
 if __name__ == "__main__":
     main() 

@@ -1,184 +1,182 @@
 import os
 import numpy as np
 import pandas as pd
-import pickle
 import json
 from typing import Dict, Any, Optional, List, Union, Tuple
 import time
 
+from src.features.ins_features import extract_window_features
 from src.utils import get_pipeline_logger, get_param
 
 logger = get_pipeline_logger("model_service")
 
+INS_FIELDS = ["velocity_north", "velocity_east", "velocity_down", "roll", "pitch", "yaw"]
+LABEL_TEXT = {
+    'turn_next_1s': ("Driving straight", "Turn ahead"),
+    'east_velocity': ("Lower East Velocity", "Higher East Velocity"),
+}
+
+
 class INSPredictionService:
     """
-    Service for loading a trained model and making predictions on INS data.
+    Service for loading the trained model and making predictions on INS data.
+
+    It serves the registered model version with the MLflow alias 'champion' (see
+    src/utils/registry.py). The first edition created an untrained mock model here and
+    predicted with a fixed rule; that rule-based service is still in simple_model_service.py.
     """
     def __init__(self, model_dir: Optional[str] = None):
         """
         Initialize the prediction service.
-        
+
         Args:
-            model_dir: Directory containing the model and scaler
+            model_dir: Directory with model.pkl, used if the registry has no champion
         """
         if model_dir is None:
             model_dir = get_param('model.output_path')
-            
+
         self.model_dir = model_dir
         self.model = None
-        self.scaler = None
+        self.version = None
         self.is_loaded = False
-        
+        self.label_text = LABEL_TEXT.get(get_param('label.name'), ("Class 0", "Class 1"))
+
         logger.info(f"Prediction service initialized with model directory: {self.model_dir}")
-        
+
     def load(self) -> bool:
         """
-        Load the model and scaler.
-        
+        Load the champion model from the MLflow Model Registry (or model.pkl).
+
         Returns:
             True if loading was successful, False otherwise
         """
         try:
-            # For demo purposes, instead of loading the actual model (which expects 1343 features),
-            # we'll create a simple mock model that works with our 6 basic features
-            from sklearn.ensemble import RandomForestClassifier
-            from sklearn.preprocessing import StandardScaler
-            
-            logger.info("Creating mock model for demonstration purposes")
-            
-            # Create a simple mock model
-            self.model = RandomForestClassifier(n_estimators=10, random_state=42)
-            
-            # Create a simple scaler that works with our 6 features
-            self.scaler = StandardScaler()
-            
-            # Initialize with dummy data to fit the expected features
-            dummy_features = np.random.rand(10, 6)
-            self.scaler.fit(dummy_features)
-            
-            # Mock fit the model with random data
-            X = dummy_features
-            y = np.random.randint(0, 2, size=10)  # Binary classification
-            self.model.fit(X, y)
-            
-            self.is_loaded = True
-            logger.info("Mock model and scaler created successfully")
-            return True
-        
-        except Exception as e:
-            logger.error(f"Error creating mock model: {str(e)}")
-            return False
-    
-    def predict(self, features: Dict[str, float]) -> Tuple[int, float]:
-        """
-        Make a prediction using the loaded model.
-        
-        Args:
-            features: Dictionary of feature values
-            
-        Returns:
-            Tuple of (prediction, probability)
-        """
-        try:
-            # For demo purposes, use a simple rule instead of the model
-            # This matches our synthetic label generation logic from before
-            velocity_east = features.get("velocity_east", 0.0)
-            
-            # Make the prediction based on a simple rule: 
-            # If velocity_east > 7.0, predict class 1, otherwise class 0
-            prediction = 1 if velocity_east > 7.0 else 0
-            
-            # Calculate a fake probability based on how far the value is from the threshold
-            distance = abs(velocity_east - 7.0)
-            base_prob = 0.5
-            prob_adjustment = min(distance / 10.0, 0.49)  # Cap adjustment at 0.49
-            
-            # For class 1 prediction, probability should be > 0.5
-            # For class 0 prediction, probability should be < 0.5
-            if prediction == 1:
-                probability = base_prob + prob_adjustment
+            from src.utils.registry import setup_mlflow, champion_version, load_model
+            client = setup_mlflow()
+            version = champion_version(client)
+            if version is not None:
+                self.model = load_model()
+                self.version = version
             else:
-                probability = base_prob - prob_adjustment
-                
-            logger.debug(f"Made prediction {prediction} with probability {probability:.4f} " +
-                        f"based on velocity_east={velocity_east:.2f}")
-                
-            return prediction, probability
-            
+                import pickle
+                with open(os.path.join(self.model_dir, "model.pkl"), 'rb') as f:
+                    self.model = pickle.load(f)
+                self.version = None
+            self.is_loaded = True
+            logger.info(f"Loaded model version {self.version}" if self.version
+                        else f"Loaded model from {self.model_dir}")
+            return True
+
         except Exception as e:
-            logger.error(f"Prediction error: {str(e)}")
-            return 0, 0.5  # Default prediction in case of error
-    
+            logger.error(f"Could not load a trained model (run training first): {str(e)}")
+            self.is_loaded = False
+            return False
+
+    def reload_if_changed(self) -> bool:
+        """Load the champion again if a different version has been promoted. True if it changed."""
+        from src.utils.registry import setup_mlflow, champion_version
+        if champion_version(setup_mlflow()) != self.version:
+            previous = self.version
+            self.load()
+            logger.info(f"Now serving model version {self.version} (was {previous})")
+            return True
+        return False
+
+    def predict_windows(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Predictions and class-1 probabilities for a matrix of window features."""
+        if not self.is_loaded and not self.load():
+            raise RuntimeError("No trained model available")
+        X = np.asarray(X, dtype=float)
+        return self.model.predict(X), self.model.predict_proba(X)[:, 1]
+
+    def window_features(self, readings: List[Dict[str, float]]) -> Dict[str, Any]:
+        """Features of a window of INS readings (dicts with the INS_FIELDS and optionally 'timestamp')."""
+        window = pd.DataFrame(readings)
+        for field in INS_FIELDS:
+            if field not in window:
+                window[field] = 0.0
+        if 'timestamp' not in window:
+            window['timestamp'] = np.arange(len(window)) * 20000   # 50 Hz
+        return extract_window_features(window, get_param('features.imu.fft_components', 5))
+
+    def predict(self, features: Union[Dict[str, float], List[Dict[str, float]]]) -> Tuple[int, float]:
+        """
+        Make a prediction for one INS reading or a window of readings.
+
+        The model was trained on half-second windows (25 readings at 50 Hz). A single reading is
+        treated as a window of one, which works but carries no motion information.
+
+        Args:
+            features: One reading (dict of INS values) or a list of readings
+
+        Returns:
+            Tuple of (prediction, probability of class 1)
+        """
+        readings = features if isinstance(features, list) else [features]
+        window = self.window_features(readings)
+        prediction, probability = self.predict_windows([window['statistical_features']])
+        return int(prediction[0]), float(probability[0])
+
     def batch_predict(self, feature_list: List[Union[List[float], Dict[str, float]]]) -> List[Dict[str, Any]]:
         """
         Make predictions for multiple examples.
-        
+
         Args:
-            feature_list: List of feature vectors or dictionaries
-            
+            feature_list: List of readings, or of feature vectors as produced by the pipeline
+
         Returns:
             List of prediction results
         """
         results = []
         for features in feature_list:
-            result = self.predict(features)
-            results.append(result)
-            
+            if isinstance(features, dict):
+                results.append(self.predict(features))
+            else:
+                prediction, probability = self.predict_windows([features])
+                results.append((int(prediction[0]), float(probability[0])))
         return results
-    
-    def predict_from_ins_data(self, ins_data: Dict[str, Any]) -> Dict[str, Any]:
+
+    def predict_from_ins_data(self, ins_data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> Dict[str, Any]:
         """
-        Wrapper method for backward compatibility.
-        
+        Predict from INS data and return a response dictionary.
+
         Args:
-            ins_data: Dictionary with INS data fields
-            
+            ins_data: One reading or a list of readings with INS data fields
+
         Returns:
             Dictionary with prediction results
         """
         try:
-            features = {
-                "velocity_north": ins_data.get("velocity_north", 0.0),
-                "velocity_east": ins_data.get("velocity_east", 0.0),
-                "velocity_down": ins_data.get("velocity_down", 0.0),
-                "roll": ins_data.get("roll", 0.0),
-                "pitch": ins_data.get("pitch", 0.0),
-                "yaw": ins_data.get("yaw", 0.0)
-            }
-            
-            prediction, probability = self.predict(features)
-            
+            prediction, probability = self.predict(ins_data)
             return {
                 "prediction": prediction,
                 "probability": probability,
-                "prediction_text": "Higher East Velocity" if prediction == 1 else "Lower East Velocity",
+                "prediction_text": self.label_text[prediction],
+                "model_version": self.version,
                 "timestamp": int(time.time() * 1000)
             }
-            
+
         except Exception as e:
             logger.error(f"Prediction error: {str(e)}")
             return {"error": str(e)}
 
 
-# Simple example usage 
+# Simple example usage
 if __name__ == "__main__":
     # Initialize service
     service = INSPredictionService()
-    
+
     # Load model
     if service.load():
-        # Example INS data
-        example_ins_data = {
-            "velocity_north": 1.45,
-            "velocity_east": 7.2,
-            "velocity_down": 0.1,
-            "roll": 0.02,
-            "pitch": 0.01,
-            "yaw": 1.2
-        }
-        
+        # Example: half a second of INS readings while the heading swings left
+        example_window = [
+            {"velocity_north": 4.0, "velocity_east": 2.0 + 0.05 * i, "velocity_down": 0.0,
+             "roll": 0.01, "pitch": 0.02, "yaw": 1.2 + 0.006 * i, "timestamp": i * 20000}
+            for i in range(25)
+        ]
+
         # Make prediction
-        result = service.predict_from_ins_data(example_ins_data)
+        result = service.predict_from_ins_data(example_window)
         print(json.dumps(result, indent=2))
     else:
-        print("Failed to load model") 
+        print("Failed to load model")

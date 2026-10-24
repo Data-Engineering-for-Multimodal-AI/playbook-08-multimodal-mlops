@@ -83,7 +83,7 @@ def detect_drift(reference_data: pd.DataFrame,
             
             if metric == 'ks_test':
                 stat, p_value = compute_ks_test(reference_values, current_values)
-                feature_drift = p_value < threshold
+                feature_drift = bool(p_value < threshold)
                 drift_results[feature] = {
                     'metric': 'ks_test',
                     'statistic': float(stat),
@@ -93,7 +93,7 @@ def detect_drift(reference_data: pd.DataFrame,
                 }
             elif metric == 'wasserstein':
                 distance = compute_wasserstein_distance(reference_values, current_values)
-                feature_drift = distance > threshold
+                feature_drift = bool(distance > threshold)
                 drift_results[feature] = {
                     'metric': 'wasserstein',
                     'distance': float(distance),
@@ -254,9 +254,10 @@ def inject_drift(imu_data_path: str,
     # Create a copy of the data
     drifted_df = imu_df.copy()
     
-    # Define IMU channels to add drift to
-    imu_channels = ['acceleration_x', 'acceleration_y', 'acceleration_z',
-                   'gyroscope_x', 'gyroscope_y', 'gyroscope_z']
+    # Define INS channels to add drift to (the first edition listed accelerometer and gyroscope
+    # channels, which the INS data doesn't have, so no noise was added)
+    imu_channels = ['velocity_north', 'velocity_east', 'velocity_down',
+                   'roll', 'pitch', 'yaw']
     
     # Inject noise
     for channel in imu_channels:
@@ -292,10 +293,10 @@ def inject_drift(imu_data_path: str,
         portion.set_index('datetime', inplace=True)
         
         # Resample to a faster frequency
-        portion = portion.resample('0.8S').mean().reset_index()
+        portion = portion.resample('800ms').mean(numeric_only=True).reset_index()
         
         # Convert back to microsecond timestamps
-        portion['timestamp'] = portion['datetime'].astype(np.int64) // 1000
+        portion['timestamp'] = portion['datetime'].dt.as_unit('us').astype(np.int64)
         
         # Remove the portion from the original dataframe
         drifted_df = pd.concat([drifted_df.iloc[:start_idx], drifted_df.iloc[end_idx:]])

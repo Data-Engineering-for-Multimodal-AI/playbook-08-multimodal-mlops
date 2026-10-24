@@ -1,3 +1,4 @@
+import functools
 import os
 import numpy as np
 import pandas as pd
@@ -33,6 +34,11 @@ def extract_statistical_features(signal_window: np.ndarray) -> np.ndarray:
     return np.array([mean, std, min_val, max_val])
 
 
+@functools.lru_cache(maxsize=None)
+def _hann(length: int) -> np.ndarray:
+    return signal.windows.hann(length)
+
+
 def extract_fft_features(signal_window: np.ndarray, num_components: int = 5) -> np.ndarray:
     """
     Extract frequency domain features from a signal window.
@@ -48,8 +54,8 @@ def extract_fft_features(signal_window: np.ndarray, num_components: int = 5) -> 
     if signal_window.size == 0 or np.isnan(signal_window).all():
         return np.zeros(num_components)
     
-    # Apply Hanning window to reduce spectral leakage
-    windowed_signal = signal_window * signal.windows.hann(len(signal_window))
+    # Apply Hanning window to reduce spectral leakage (same as scipy.signal.windows.hann)
+    windowed_signal = signal_window * _hann(len(signal_window))
     
     # Compute FFT
     fft = np.abs(np.fft.rfft(windowed_signal))
@@ -94,17 +100,20 @@ def create_sliding_windows(df: pd.DataFrame, window_size_sec: float, overlap_sec
     start_time = df[time_col].min()
     end_time = df[time_col].max()
     
-    # Create windows
+    # Create windows. The data is sorted, so each window is a slice found by binary search
+    # (the first edition filtered the whole dataframe for every window, which took minutes)
+    df = df.reset_index(drop=True)
+    times = df[time_col].to_numpy()
     current_start = start_time
     while current_start + window_size_us <= end_time:
         current_end = current_start + window_size_us
         
         # Get data within the current window
-        window_df = df[(df[time_col] >= current_start) & (df[time_col] < current_end)]
+        first, last = np.searchsorted(times, [current_start, current_end], side='left')
         
         # Only add window if it has data
-        if not window_df.empty:
-            windows.append(window_df)
+        if last > first:
+            windows.append(df.iloc[first:last])
             
         # Move to the next window
         current_start += step_size_us
@@ -128,49 +137,45 @@ def extract_window_features(window_df: pd.DataFrame, fft_components: int = 5) ->
     feature_dict = {}
     
     # Get window timestamp (middle of the window)
-    start_time = window_df['timestamp'].min()
-    end_time = window_df['timestamp'].max()
-    window_time = (start_time + end_time) // 2
+    timestamps = window_df['timestamp'].to_numpy()
+    window_time = (timestamps.min() + timestamps.max()) // 2
     
     feature_dict['timestamp'] = window_time
     
-    # Extract features for each INS channel (velocity and orientation)
-    ins_channels = [
-        'velocity_north', 'velocity_east', 'velocity_down',
-        'roll', 'pitch', 'yaw'
-    ]
+    # Extract features for each INS channel (velocity and orientation).
+    # Work on NumPy arrays: per-column pandas access was most of the run time
+    channels = {
+        channel: window_df[channel].to_numpy(dtype=float)
+        for channel in ['velocity_north', 'velocity_east', 'velocity_down', 'roll', 'pitch', 'yaw']
+        if channel in window_df.columns
+    }
     
     all_features = []
     
     # Calculate combined velocity magnitude
-    if all(col in window_df.columns for col in ['velocity_north', 'velocity_east', 'velocity_down']):
-        window_df['velocity_magnitude'] = np.sqrt(
-            window_df['velocity_north']**2 + 
-            window_df['velocity_east']**2 + 
-            window_df['velocity_down']**2
+    if all(col in channels for col in ['velocity_north', 'velocity_east', 'velocity_down']):
+        channels['velocity_magnitude'] = np.sqrt(
+            channels['velocity_north']**2 + 
+            channels['velocity_east']**2 + 
+            channels['velocity_down']**2
         )
-        ins_channels.append('velocity_magnitude')
     
-    for channel in ins_channels:
-        if channel in window_df.columns:
-            # Get the channel data
-            channel_data = window_df[channel].values
-            
-            # Extract statistical features
-            stats = extract_statistical_features(channel_data)
-            
-            # Extract FFT features
-            fft_feats = extract_fft_features(channel_data, fft_components)
-            
-            # Store features with channel-specific names
-            feature_dict[f"{channel}_mean"] = stats[0]
-            feature_dict[f"{channel}_std"] = stats[1]
-            feature_dict[f"{channel}_min"] = stats[2]
-            feature_dict[f"{channel}_max"] = stats[3]
-            
-            # Combine features for the statistical feature vector
-            all_features.extend(stats)
-            all_features.extend(fft_feats)
+    for channel, channel_data in channels.items():
+        # Extract statistical features
+        stats = extract_statistical_features(channel_data)
+        
+        # Extract FFT features
+        fft_feats = extract_fft_features(channel_data, fft_components)
+        
+        # Store features with channel-specific names
+        feature_dict[f"{channel}_mean"] = stats[0]
+        feature_dict[f"{channel}_std"] = stats[1]
+        feature_dict[f"{channel}_min"] = stats[2]
+        feature_dict[f"{channel}_max"] = stats[3]
+        
+        # Combine features for the statistical feature vector
+        all_features.extend(stats)
+        all_features.extend(fft_feats)
     
     # Store the combined feature vector
     feature_dict['statistical_features'] = all_features
@@ -214,7 +219,7 @@ def process_ins_features(ins_data_path: str, output_path: Optional[str] = None) 
     # Extract features for each window
     features_list = []
     for i, window_df in enumerate(windows):
-        if i % 50 == 0:
+        if i % 2000 == 0:
             logger.info(f"Processing window {i}/{len(windows)}")
             
         try:

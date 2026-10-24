@@ -2,7 +2,7 @@
 Schema validation for INS data processing.
 """
 
-from MLOps_Enhancements.schemas.ins_schemas import (
+from enhancements_modules.schemas.ins_schemas import (
     INSDataPoint,
     INSFeatures,
     PredictionRequest,

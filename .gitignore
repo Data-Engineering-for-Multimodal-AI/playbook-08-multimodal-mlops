@@ -133,7 +133,6 @@ data/*
 data/*/*
 !data/*/.gitkeep
 demo_output/
-oxfordrobocar_sample_small/
 chunked_bundle/
 clean_repo/
 temp_repo/
@@ -142,4 +141,7 @@ temp_repo/
 REORGANIZATION.md
 
 # MLflow
-mlruns/ 
+mlruns/
+
+# Local audit notes
+AUDIT.md

@@ -99,7 +99,7 @@ async def feedback(timestamp: int, actual_label: int):
 async def batch_predict(data_list: List[INSData]):
     results = []
     for data in data_list:
-        features = data.dict()
+        features = data.model_dump()
         result = service.predict_from_ins_data(features)
         results.append(result)
     
@@ -109,4 +109,5 @@ async def batch_predict(data_list: List[INSData]):
 # Run with: uvicorn src.serve.simple_api:app --reload
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    # Local only by default; set HOST=0.0.0.0 to accept connections from other machines
+    uvicorn.run(app, host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "8000"))) 

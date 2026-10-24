@@ -25,7 +25,7 @@ conda create -n mlops-pipeline python=3.9
 conda activate mlops-pipeline
 
 # Install dependencies
-pip install -r MLOps_Enhancements/requirements-enhancements.txt
+pip install -r enhancements_modules/requirements-enhancements.txt
 pip install -e .
 
 # Install development dependencies
@@ -53,7 +53,7 @@ Please write tests for any new features or bug fixes. Run the tests using pytest
 pytest
 
 # Run tests with coverage
-pytest --cov=MLOps_Enhancements
+pytest --cov=enhancements_modules
 ```
 
 ## Pull Request Process

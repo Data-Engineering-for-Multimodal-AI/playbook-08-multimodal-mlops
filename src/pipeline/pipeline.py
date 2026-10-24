@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import time
 import json
 from typing import Dict, Any, Optional, List, Tuple
@@ -6,13 +8,24 @@ import pandas as pd
 import shutil
 
 from src.utils import get_pipeline_logger, get_param
-from src.ingest import ingest_video_frames, ingest_imu_data
-from src.features import process_video_features, process_imu_features
-from src.align import align_features, prepare_ml_dataset
-from src.models import train_model, batch_predict
-from src.drift import check_for_drift, create_reference_dataset, inject_drift
+from src.ingest.ins_ingest import ingest_ins_data
+from src.features.ins_features import process_ins_features
+from src.align.temporal_alignment import align_features
+from src.models.dataset import build_dataset
+from src.models.train import train_model, chronological_split
+from src.drift.drift_detector import check_for_drift, create_reference_dataset, inject_drift
 
 logger = get_pipeline_logger("pipeline")
+
+
+def run_module(module: str) -> None:
+    """
+    Run a pipeline step in its own Python process.
+
+    The camera steps load PyTorch; PyTorch and XGBoost in the same process crash on macOS, so
+    they run separately from training.
+    """
+    subprocess.run([sys.executable, "-m", module], check=True)
 
 
 def run_ingest_stage() -> Tuple[str, str]:
@@ -25,12 +38,12 @@ def run_ingest_stage() -> Tuple[str, str]:
     logger.info("Starting data ingestion stage")
     
     # Ingest video frames
-    video_df = ingest_video_frames()
+    run_module("src.ingest.video_ingest")
     video_metadata_path = os.path.join(get_param('ingest.video.output_path'), "video_metadata.csv")
     
-    # Ingest IMU data
-    imu_df = ingest_imu_data()
-    imu_data_path = os.path.join(get_param('ingest.imu.output_path'), "imu_processed.csv")
+    # Ingest INS data
+    ingest_ins_data(get_param('ingest.imu.output_path'))
+    imu_data_path = os.path.join(get_param('ingest.imu.output_path'), "ins_processed.csv")
     
     logger.info("Data ingestion stage completed")
     return video_metadata_path, imu_data_path
@@ -49,13 +62,14 @@ def run_feature_extraction_stage(video_metadata_path: str, imu_data_path: str) -
     """
     logger.info("Starting feature extraction stage")
     
-    # Extract video features
-    video_features_df = process_video_features(video_metadata_path)
+    # Extract video features (reads the metadata written by the ingest stage)
+    run_module("src.features.video_features")
     video_features_path = os.path.join(get_param('features.output_path'), 'video', 'video_features.parquet')
     
-    # Extract IMU features
-    imu_features_df = process_imu_features(imu_data_path)
-    imu_features_path = os.path.join(get_param('features.output_path'), 'imu', 'imu_features.parquet')
+    # Extract INS features
+    imu_output = os.path.join(get_param('features.output_path'), 'ins')
+    process_ins_features(imu_data_path, output_path=imu_output)
+    imu_features_path = os.path.join(imu_output, 'ins_features.parquet')
     
     logger.info("Feature extraction stage completed")
     return video_features_path, imu_features_path
@@ -63,7 +77,7 @@ def run_feature_extraction_stage(video_metadata_path: str, imu_data_path: str) -
 
 def run_alignment_stage(video_features_path: str, imu_features_path: str) -> Tuple[str, str, str]:
     """
-    Run the temporal alignment stage.
+    Run the temporal alignment stage and build the training dataset.
     
     Args:
         video_features_path: Path to video features
@@ -74,12 +88,13 @@ def run_alignment_stage(video_features_path: str, imu_features_path: str) -> Tup
     """
     logger.info("Starting temporal alignment stage")
     
-    # Align modalities
+    # Align modalities (the windows that have a camera frame)
     aligned_df = align_features(video_features_path, imu_features_path)
     aligned_features_path = os.path.join(get_param('alignment.output_path'), 'aligned_features.parquet')
     
-    # Prepare ML dataset
-    features_df, labels_df = prepare_ml_dataset(aligned_features_path)
+    # Prepare ML dataset from every INS window (see src/models/dataset.py)
+    imu_data_path = os.path.join(get_param('ingest.imu.output_path'), "ins_processed.csv")
+    build_dataset(imu_features_path, imu_data_path, video_features_path=video_features_path)
     ml_features_path = os.path.join(get_param('alignment.output_path'), 'ml_dataset', 'features.parquet')
     ml_labels_path = os.path.join(get_param('alignment.output_path'), 'ml_dataset', 'labels.parquet')
     
@@ -108,77 +123,67 @@ def run_training_stage(ml_features_path: str, ml_labels_path: str) -> str:
     return model_path
 
 
-def run_drift_detection_stage(aligned_features_path: str, imu_data_path: str) -> Dict[str, Any]:
+def run_drift_detection_stage(imu_features_path: str, imu_data_path: str) -> Dict[str, Any]:
     """
-    Run the drift detection stage.
+    Run the drift detection stage: inject drift into the INS data and compare its features
+    with the training period's.
     
     Args:
-        aligned_features_path: Path to aligned features
-        imu_data_path: Path to IMU data for drift injection
+        imu_features_path: Path to the INS window features
+        imu_data_path: Path to INS data for drift injection
         
     Returns:
         Dictionary with drift detection results
     """
     logger.info("Starting drift detection stage")
     
-    # Create reference dataset
-    reference_df = create_reference_dataset(aligned_features_path)
+    # Create reference dataset from the training period of the drive
+    features = pd.read_parquet(imu_features_path).dropna().sort_values('timestamp')
+    train, _, _ = chronological_split(len(features), get_param('pipeline.test_size'),
+                                      get_param('pipeline.validation_size'))
+    temp_dir = os.path.join('experiments', 'drift_test')
+    os.makedirs(temp_dir, exist_ok=True)
+    training_features_path = os.path.join(temp_dir, 'training_features.parquet')
+    features.iloc[train].to_parquet(training_features_path, index=False)
+    create_reference_dataset(training_features_path)
     reference_path = os.path.join(get_param('drift.reference_path'), 'reference_dataset.parquet')
     
     # Inject drift for testing
-    drifted_df = inject_drift(imu_data_path)
-    drifted_path = os.path.join(os.path.dirname(imu_data_path), 'imu_drifted.csv')
+    inject_drift(imu_data_path, output_path=temp_dir)
+    drifted_path = os.path.join(temp_dir, 'imu_drifted.csv')
     
     # Process the drifted data
-    logger.info("Processing drifted IMU data through the pipeline")
-    
-    # Create temporary directories for drifted data processing
-    temp_dir = os.path.join('experiments', 'drift_test')
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    # Process drifted IMU features
-    drifted_imu_features_path = os.path.join(temp_dir, 'imu_features.parquet')
-    drifted_imu_features = process_imu_features(drifted_path, output_path=os.path.dirname(drifted_imu_features_path))
-    
-    # Load original video features (reused since we're only testing IMU drift)
-    video_features_path = os.path.join(get_param('features.output_path'), 'video', 'video_features.parquet')
-    
-    # Align drifted data
-    drifted_aligned_path = os.path.join(temp_dir, 'aligned_features.parquet')
-    drifted_aligned = align_features(
-        video_features_path, 
-        drifted_imu_features_path,
-        output_path=os.path.dirname(drifted_aligned_path)
-    )
+    logger.info("Processing drifted INS data through the pipeline")
+    process_ins_features(drifted_path, output_path=temp_dir)
+    drifted_features_path = os.path.join(temp_dir, 'ins_features.parquet')
     
     # Check for drift
-    drift_results = check_for_drift(reference_path, drifted_aligned_path)
+    drift_results = check_for_drift(reference_path, drifted_features_path,
+                                    output_path=os.path.join(temp_dir, 'drift_results'))
+    drift_results['drifted_features_path'] = drifted_features_path
+    drift_results['drifted_data_path'] = drifted_path
     
     # Log drift detection results
     if drift_results['drift_detected']:
-        logger.warning("Drift detected in the IMU data. Retraining may be needed.")
+        logger.warning("Drift detected in the INS data. Retraining may be needed.")
     else:
-        logger.info("No significant drift detected in the IMU data.")
+        logger.info("No significant drift detected in the INS data.")
     
     logger.info("Drift detection stage completed")
     return drift_results
 
 
-def run_retraining_if_needed(drift_results: Dict[str, Any],
-                           aligned_features_path: str,
-                           ml_features_path: str,
-                           ml_labels_path: str) -> Optional[str]:
+def run_retraining_if_needed(drift_results: Dict[str, Any]) -> Optional[int]:
     """
-    Run model retraining if drift is detected.
+    Run model retraining if drift is detected: train on the drifted data and register the result
+    as a new model version. `python -m src.models.evaluate_model` decides whether it replaces the
+    champion.
     
     Args:
         drift_results: Results from drift detection
-        aligned_features_path: Path to aligned features
-        ml_features_path: Path to ML features
-        ml_labels_path: Path to ML labels
         
     Returns:
-        Path to retrained model if retraining was performed, None otherwise
+        The new model version if retraining was performed, None otherwise
     """
     if drift_results['drift_detected']:
         logger.info("Drift detected, starting model retraining")
@@ -187,28 +192,23 @@ def run_retraining_if_needed(drift_results: Dict[str, Any],
         retrain_dir = os.path.join('experiments', 'retraining', f"retrain_{int(time.time())}")
         os.makedirs(retrain_dir, exist_ok=True)
         
-        # Copy the ML dataset to the retraining directory
-        retrain_features_path = os.path.join(retrain_dir, 'features.parquet')
-        retrain_labels_path = os.path.join(retrain_dir, 'labels.parquet')
-        
-        shutil.copy(ml_features_path, retrain_features_path)
-        shutil.copy(ml_labels_path, retrain_labels_path)
+        # Build the dataset from the drifted features (labels from the recorded heading)
+        build_dataset(drift_results['drifted_features_path'],
+                      os.path.join(get_param('ingest.imu.output_path'), "ins_processed.csv"),
+                      output_path=retrain_dir)
         
         # Retrain the model
         retrain_model_dir = os.path.join(retrain_dir, 'model')
-        os.makedirs(retrain_model_dir, exist_ok=True)
-        
         training_results = train_model(
-            retrain_features_path, 
-            retrain_labels_path,
+            os.path.join(retrain_dir, 'features.parquet'),
+            os.path.join(retrain_dir, 'labels.parquet'),
             output_path=retrain_model_dir,
-            experiment_name=f"retraining_{int(time.time())}"
+            run_name=f"retraining_{int(time.time())}"
         )
         
-        retrain_model_path = os.path.join(retrain_model_dir, 'model.pkl')
-        
-        logger.info(f"Model retraining completed. Test accuracy: {training_results['test_metrics']['accuracy']:.4f}")
-        return retrain_model_path
+        logger.info(f"Model retraining completed (version {training_results['model_version']}). "
+                    f"Test F1 on drifted data: {training_results['test_metrics']['f1']:.4f}")
+        return training_results['model_version']
     else:
         logger.info("No drift detected, skipping retraining")
         return None
@@ -246,19 +246,12 @@ def run_pipeline(simulate_drift: bool = True) -> Dict[str, Any]:
         
         # 5. Drift Detection
         if simulate_drift:
-            drift_results = run_drift_detection_stage(aligned_features_path, imu_data_path)
+            drift_results = run_drift_detection_stage(imu_features_path, imu_data_path)
         else:
-            # Create reference dataset without simulating drift
-            reference_df = create_reference_dataset(aligned_features_path)
             drift_results = {'drift_detected': False, 'message': 'Drift simulation disabled'}
         
         # 6. Retraining if needed
-        if drift_results.get('drift_detected', False):
-            retrained_model_path = run_retraining_if_needed(
-                drift_results, aligned_features_path, ml_features_path, ml_labels_path
-            )
-        else:
-            retrained_model_path = None
+        retrained_version = run_retraining_if_needed(drift_results)
         
         # Create pipeline summary
         pipeline_summary = {
@@ -286,7 +279,7 @@ def run_pipeline(simulate_drift: bool = True) -> Dict[str, Any]:
                 'drift_detection': drift_results,
                 'retraining': {
                     'triggered': drift_results.get('drift_detected', False),
-                    'retrained_model_path': retrained_model_path
+                    'retrained_model_version': retrained_version
                 }
             }
         }

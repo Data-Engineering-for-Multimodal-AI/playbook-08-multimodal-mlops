@@ -7,7 +7,7 @@ import pytest
 from typing import Dict, List, Tuple
 from datetime import datetime, timedelta
 
-from MLOps_Enhancements.feature_store.feature_store import FeatureStore
+from enhancements_modules.feature_store.feature_store import FeatureStore
 
 @pytest.fixture
 def temp_feature_store():

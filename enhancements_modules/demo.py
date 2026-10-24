@@ -17,8 +17,8 @@ logging.basicConfig(
 logger = logging.getLogger("mlops_demo")
 
 # Import our enhancements
-from MLOps_Enhancements.schemas.ins_schemas import INSDataPoint, INSFeatures
-from MLOps_Enhancements.feature_store.feature_store import FeatureStore
+from enhancements_modules.schemas.ins_schemas import INSDataPoint, INSFeatures
+from enhancements_modules.feature_store.feature_store import FeatureStore
 
 def create_sample_ins_data(num_points: int = 100) -> pd.DataFrame:
     """Create sample INS data for demonstration."""
