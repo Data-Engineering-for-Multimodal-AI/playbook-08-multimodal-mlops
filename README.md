@@ -116,7 +116,7 @@ No keys or accounts are needed.
 |---|---|
 | Date | 2026-10-24 |
 | OS | macOS 26.5.1 (arm64); Ubuntu 24.04 (x86-64) in CI |
-| Python | 3.12.15 (macOS); 3.12 and 3.13 (CI) |
+| Python | 3.12.15 (macOS); 3.12.3 and 3.13.17 (CI) |
 | Key packages | pandas 3.1.0, scikit-learn 1.9.1, XGBoost 3.4.1, MLflow 3.17.2, PyTorch 2.14.1 (CPU), FastAPI 0.162.0, Streamlit 1.66.1; Airflow 3.3.2 for the DAG (macOS and CI) |
 
 On the MacBook (fresh clone, Python 3.12.15): the three printed `pip install` lines took 87 s; `python pipeline/run_pipeline.py` took 126 s (INS features 41 s, camera ingest 24 s, ResNet-18 features 17 s with the weights already downloaded, training 14 s, the closed-loop replay 20 s). `make smoke` runs the tests, including the whole pipeline, in about 2 minutes.
@@ -155,7 +155,9 @@ The full list of fixes is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Expected output
 
-From `python pipeline/run_pipeline.py --port 59599` (a free port; the default is 8000) in a fresh clone after the printed `pip install` lines (2026-10-24, macOS 26.5.1 arm64, Python 3.12.15). The log lines of the individual steps are left out; times are local. On Linux (CI) the scores can differ in the last digit.
+From `python pipeline/run_pipeline.py --port 59599` (a free port; the default is 8000) in a fresh clone after the printed `pip install` lines (2026-10-24, macOS 26.5.1 arm64, Python 3.12.15). The log lines of the individual steps are left out; times are local.
+
+XGBoost's results differ slightly between platforms, and the loop can take a different path. In CI on Linux (Ubuntu 24.04, Python 3.12.3) the test F1 is 0.871, the retrained v2 and v3 lose to v1 on the newest batches and are kept out of service, v4 is promoted at batch 12, and F1 over the noisy period is 0.508 with the loop and 0.396 without.
 
 ```
 12:27:59  Starting MLOps pipeline execution
