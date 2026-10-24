@@ -254,9 +254,10 @@ def inject_drift(imu_data_path: str,
     # Create a copy of the data
     drifted_df = imu_df.copy()
     
-    # Define IMU channels to add drift to
-    imu_channels = ['acceleration_x', 'acceleration_y', 'acceleration_z',
-                   'gyroscope_x', 'gyroscope_y', 'gyroscope_z']
+    # Define INS channels to add drift to (the first edition listed accelerometer and gyroscope
+    # channels, which the INS data doesn't have, so no noise was added)
+    imu_channels = ['velocity_north', 'velocity_east', 'velocity_down',
+                   'roll', 'pitch', 'yaw']
     
     # Inject noise
     for channel in imu_channels:

@@ -45,9 +45,11 @@ def find_nearest_frame(timestamp: int, video_df: pd.DataFrame,
     if video_df.empty:
         return None
     
-    # Find the index of the frame with the closest timestamp
+    # Find the index of the frame with the closest timestamp. idxmin returns an index label, so
+    # look it up with .loc (the first edition used .iloc, which picks the wrong frame once the
+    # dataframe has been re-sorted, as align_modalities does)
     closest_idx = (video_df['timestamp'] - timestamp).abs().idxmin()
-    closest_frame = video_df.iloc[closest_idx]
+    closest_frame = video_df.loc[closest_idx]
     
     # Check if the time difference is within the allowed maximum
     if max_time_diff is not None:
@@ -87,7 +89,7 @@ def align_modalities(video_df: pd.DataFrame, imu_df: pd.DataFrame,
     
     # For each IMU window, find matching video frame
     for idx, imu_row in imu_df.iterrows():
-        if idx % 50 == 0:
+        if idx % 2000 == 0:
             logger.info(f"Processing alignment for IMU window {idx}/{len(imu_df)}")
             
         try:

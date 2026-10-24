@@ -46,8 +46,10 @@ def test_schema_structure():
     assert isinstance(imu_columns, list)
     assert len(imu_columns) > 0
     
-    required_column_names = ['timestamp', 'acceleration_x', 'acceleration_y', 'acceleration_z',
-                           'gyroscope_x', 'gyroscope_y', 'gyroscope_z']
+    # INS columns (the first edition's test still listed raw IMU accelerometer and gyroscope
+    # columns from before the pipeline switched to INS data)
+    required_column_names = ['timestamp', 'velocity_north', 'velocity_east', 'velocity_down',
+                           'roll', 'pitch', 'yaw']
     
     column_names = [col['name'] for col in imu_columns]
     for required_name in required_column_names:
@@ -127,12 +129,12 @@ def test_schema_compatibility():
             if col == 'timestamp':
                 assert imu_df[col].dtype == np.int64
     
-    # Check at least one accelerometer and gyroscope column exists
-    accel_cols = [col for col in imu_df.columns if col.startswith('acceleration_')]
-    gyro_cols = [col for col in imu_df.columns if col.startswith('gyroscope_')]
+    # Check the velocity and orientation columns exist
+    velocity_cols = [col for col in imu_df.columns if col.startswith('velocity_')]
+    orientation_cols = [col for col in imu_df.columns if col in ('roll', 'pitch', 'yaw')]
     
-    assert len(accel_cols) > 0, "No acceleration columns found"
-    assert len(gyro_cols) > 0, "No gyroscope columns found"
+    assert len(velocity_cols) == 3, "Velocity columns missing"
+    assert len(orientation_cols) == 3, "Orientation columns missing"
 
 
 def test_schema_version():
