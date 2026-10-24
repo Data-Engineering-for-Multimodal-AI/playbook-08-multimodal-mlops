@@ -9,6 +9,7 @@ import os
 os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")   # MLflow 3.x prints a hint on import otherwise
 
 import mlflow  # noqa: E402
+import mlflow.xgboost  # noqa: E402
 from mlflow import MlflowClient  # noqa: E402
 from mlflow.exceptions import MlflowException  # noqa: E402
 
@@ -49,9 +50,9 @@ def set_champion(client: MlflowClient, version: int) -> None:
 
 
 def load_model(version=None):
-    """Load a registered version (default: the champion) as a scikit-learn pipeline."""
+    """Load a registered version (default: the champion) as an XGBClassifier."""
     reference = f"@{CHAMPION}" if version is None else f"/{version}"
-    return mlflow.sklearn.load_model(f"models:/{model_name()}{reference}")
+    return mlflow.xgboost.load_model(f"models:/{model_name()}{reference}")
 
 
 def latest_base_version(client: MlflowClient):

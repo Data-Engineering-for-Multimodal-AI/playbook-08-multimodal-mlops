@@ -9,24 +9,26 @@ from src.utils import get_pipeline_logger, get_param
 logger = get_pipeline_logger("model_predict")
 
 
-def load_model(model_path: str, scaler_path: str) -> Tuple[Any, Any]:
+def load_model(model_path: str, scaler_path: Optional[str] = None) -> Tuple[Any, Any]:
     """
-    Load a trained model and scaler.
+    Load a trained model and, if there is one, its scaler.
     
     Args:
         model_path: Path to the trained model pickle file
-        scaler_path: Path to the scaler pickle file
+        scaler_path: Path to the scaler pickle file (models trained by the first edition's code)
         
     Returns:
-        Tuple of (model, scaler)
+        Tuple of (model, scaler or None)
     """
     logger.info(f"Loading model from {model_path}")
     with open(model_path, 'rb') as f:
         model = pickle.load(f)
     
-    logger.info(f"Loading scaler from {scaler_path}")
-    with open(scaler_path, 'rb') as f:
-        scaler = pickle.load(f)
+    scaler = None
+    if scaler_path and os.path.exists(scaler_path):
+        logger.info(f"Loading scaler from {scaler_path}")
+        with open(scaler_path, 'rb') as f:
+            scaler = pickle.load(f)
     
     return model, scaler
 
@@ -38,7 +40,7 @@ def predict(features: Union[np.ndarray, List[List[float]]],
     
     Args:
         features: Feature vectors to make predictions on
-        model_dir: Directory containing the model and scaler
+        model_dir: Directory containing the model (and the scaler, for first-edition models)
         
     Returns:
         Numpy array of predictions
@@ -56,12 +58,13 @@ def predict(features: Union[np.ndarray, List[List[float]]],
     if not isinstance(features, np.ndarray):
         features = np.array(features)
     
-    # Scale features
-    features_scaled = scaler.transform(features)
+    # Scale features (current models are trained without scaling: tree splits don't need it)
+    if scaler is not None:
+        features = scaler.transform(features)
     
     # Make predictions
-    predictions = model.predict(features_scaled)
-    probabilities = model.predict_proba(features_scaled)
+    predictions = model.predict(features)
+    probabilities = model.predict_proba(features)
     
     logger.info(f"Made predictions for {len(features)} samples")
     

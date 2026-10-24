@@ -5,8 +5,6 @@ import json
 import pickle
 import time
 from typing import Dict, Any, Optional, Tuple
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 import xgboost as xgb
 
@@ -59,24 +57,27 @@ def chronological_split(n: int, test_size: float, val_size: float) -> Tuple[slic
     return slice(0, train_end), slice(train_end, val_end), slice(val_end, n)
 
 
-def make_model(params: Dict[str, Any], random_seed: int) -> Pipeline:
-    """Scaler and XGBoost classifier, saved and served as one scikit-learn pipeline."""
-    return Pipeline([
-        ('scaler', StandardScaler()),
-        ('model', xgb.XGBClassifier(
-            n_estimators=params['n_estimators'],
-            learning_rate=params['learning_rate'],
-            max_depth=params['max_depth'],
-            subsample=params['subsample'],
-            colsample_bytree=params['colsample_bytree'],
-            random_state=random_seed,
-            eval_metric='logloss',
-            n_jobs=1,  # deterministic and stable when torch is loaded in the same process
-        )),
-    ])
+def make_model(params: Dict[str, Any], random_seed: int) -> xgb.XGBClassifier:
+    """
+    The XGBoost classifier.
+
+    The first edition also fitted a StandardScaler. Tree splits don't depend on the scale of a
+    feature, so it changed nothing, and leaving it out lets MLflow store the model in XGBoost's own
+    format (see the log_model call below).
+    """
+    return xgb.XGBClassifier(
+        n_estimators=params['n_estimators'],
+        learning_rate=params['learning_rate'],
+        max_depth=params['max_depth'],
+        subsample=params['subsample'],
+        colsample_bytree=params['colsample_bytree'],
+        random_state=random_seed,
+        eval_metric='logloss',
+        n_jobs=1,  # deterministic and stable when torch is loaded in the same process
+    )
 
 
-def classification_metrics(model: Pipeline, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+def classification_metrics(model, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
     if len(y) == 0:
         return {}
     pred = model.predict(X)
@@ -190,7 +191,7 @@ def train_model(features_path: Optional[str] = None,
 
         # Train model
         model = make_model(params, random_seed)
-        model.fit(X_train, y_train, model__sample_weight=weights)
+        model.fit(X_train, y_train, sample_weight=weights)
 
         train_metrics = classification_metrics(model, X_train, y_train)
         val_metrics = classification_metrics(model, X[val], y[val])
@@ -198,23 +199,20 @@ def train_model(features_path: Optional[str] = None,
         for prefix, metrics in [('train', train_metrics), ('val', val_metrics), ('test', test_metrics)]:
             mlflow.log_metrics({f"{prefix}_{k}": v for k, v in metrics.items()})
 
-        # Save model artifacts (model.pkl and scaler.pkl as in the first edition, plus the pipeline)
+        # Save model artifacts (model.pkl as in the first edition; there is no scaler.pkl any more)
         model_path = os.path.join(output_path, "model.pkl")
         with open(model_path, 'wb') as f:
-            pickle.dump(model.named_steps['model'], f)
-        scaler_path = os.path.join(output_path, "scaler.pkl")
-        with open(scaler_path, 'wb') as f:
-            pickle.dump(model.named_steps['scaler'], f)
+            pickle.dump(model, f)
         importances_path = os.path.join(output_path, "feature_importances.json")
         with open(importances_path, 'w') as f:
-            json.dump({'feature_importances': model.named_steps['model'].feature_importances_.tolist()}, f, indent=2)
+            json.dump({'feature_importances': model.feature_importances_.tolist()}, f, indent=2)
         mlflow.log_artifact(importances_path)
 
-        # Log the pipeline and register it as a new version
-        # MLflow 3 saves scikit-learn models with skops, which loads only types declared safe
-        info = mlflow.sklearn.log_model(model, name="model", registered_model_name=model_name(),
-                                        input_example=X_train[:2],
-                                        skops_trusted_types=["xgboost.core.Booster", "xgboost.sklearn.XGBClassifier"])
+        # Log the model in XGBoost's own format (no pickle) and register it as a new version.
+        # (MLflow's scikit-learn flavor loads models with skops, which imports PyTorch; PyTorch
+        # and XGBoost in one process crash on macOS.)
+        info = mlflow.xgboost.log_model(model, name="model", registered_model_name=model_name(),
+                                        input_example=X_train[:2])
         version = int(info.registered_model_version)
         client.set_model_version_tag(model_name(), str(version), "trained_on",
                                      "drive" if recent_data is None else "drive+production")

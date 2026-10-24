@@ -30,7 +30,7 @@ class INSPredictionService:
         Initialize the prediction service.
 
         Args:
-            model_dir: Directory with model.pkl and scaler.pkl, used if the registry has no champion
+            model_dir: Directory with model.pkl, used if the registry has no champion
         """
         if model_dir is None:
             model_dir = get_param('model.output_path')
@@ -45,7 +45,7 @@ class INSPredictionService:
 
     def load(self) -> bool:
         """
-        Load the champion model from the MLflow Model Registry (or model.pkl and scaler.pkl).
+        Load the champion model from the MLflow Model Registry (or model.pkl).
 
         Returns:
             True if loading was successful, False otherwise
@@ -59,12 +59,8 @@ class INSPredictionService:
                 self.version = version
             else:
                 import pickle
-                from sklearn.pipeline import Pipeline
-                with open(os.path.join(self.model_dir, "scaler.pkl"), 'rb') as f:
-                    scaler = pickle.load(f)
                 with open(os.path.join(self.model_dir, "model.pkl"), 'rb') as f:
-                    model = pickle.load(f)
-                self.model = Pipeline([('scaler', scaler), ('model', model)])
+                    self.model = pickle.load(f)
                 self.version = None
             self.is_loaded = True
             logger.info(f"Loaded model version {self.version}" if self.version
