@@ -59,10 +59,11 @@ class FeatureExtractor:
         logger.info(f"Using {self.device} for feature extraction")
         
         # Load model
+        # torchvision removed the `pretrained=` argument; ask for the ImageNet weights instead
         if model_name == 'resnet18':
-            self.model = models.resnet18(pretrained=pretrained)
+            self.model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT if pretrained else None)
         elif model_name == 'resnet50':
-            self.model = models.resnet50(pretrained=pretrained)
+            self.model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT if pretrained else None)
         else:
             raise ValueError(f"Unsupported model: {model_name}")
             

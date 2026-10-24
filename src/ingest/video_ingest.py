@@ -58,12 +58,18 @@ def load_frame(file_path: str, resize_shape: Tuple[int, int] = None) -> np.ndarr
     Returns:
         Image as a numpy array in RGB format
     """
-    img = cv2.imread(file_path)
+    img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
     if img is None:
         raise ValueError(f"Failed to read image: {file_path}")
         
-    # Convert BGR to RGB
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if img.ndim == 2:
+        # Oxford RobotCar stores raw Bayer sensor images (one channel). Demosaic them as the
+        # dataset's SDK does (the stereo camera's pattern is GBRG, which OpenCV calls BayerGR).
+        # The first edition read them as grayscale.
+        img = cv2.cvtColor(img, cv2.COLOR_BayerGR2RGB)
+    else:
+        # Convert BGR to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
     # Resize if needed
     if resize_shape is not None:
