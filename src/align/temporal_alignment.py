@@ -85,6 +85,13 @@ def align_modalities(video_df: pd.DataFrame, imu_df: pd.DataFrame,
     video_df = video_df.sort_values('timestamp')
     imu_df = imu_df.sort_values('timestamp')
     
+    # Only windows within max_time_diff of the camera's time range can match a frame (the sample
+    # has 3.6 s of frames in a 42-minute drive; checking every window took minutes)
+    if max_time_diff is not None:
+        margin = max_time_diff * 1e6
+        imu_df = imu_df[(imu_df['timestamp'] >= video_df['timestamp'].min() - margin) &
+                        (imu_df['timestamp'] <= video_df['timestamp'].max() + margin)]
+    
     logger.info(f"Aligning {len(imu_df)} IMU windows with {len(video_df)} video frames")
     
     # For each IMU window, find matching video frame
