@@ -1,0 +1,62 @@
+name: smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    # The whole pipeline on the sample data (CPU): features, training, MLflow registry, serving,
+    # the drift-retrain-promote replay, the dashboard, plus the unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: Cache the ResNet-18 weights
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/torch
+          key: torch-resnet18
+      - name: Smoke test
+        run: make smoke
+      - name: Printed install path and command (pip, pipeline/run_pipeline.py)
+        run: |
+          make clean-data
+          uv venv --seed --python ${{ matrix.python-version }} /tmp/pipenv
+          /tmp/pipenv/bin/python -m pip install -q -r pipeline/requirements.txt -r enhancements_modules/requirements-enhancements.txt
+          /tmp/pipenv/bin/python -m pip install -q -e .
+          /tmp/pipenv/bin/python pipeline/run_pipeline.py --port 18080
+
+  airflow:
+    # The Airflow DAG with Airflow 3 in its own environment; the tasks use the playbook's Python
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_HOME: /tmp/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: Install the playbook and Airflow
+        run: |
+          uv sync --python 3.12
+          uv venv --python 3.12 /tmp/airflow-venv
+          uv pip install --python /tmp/airflow-venv/bin/python "apache-airflow==3.3.2" \
+            --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt
+      - name: Run the DAG once (airflow dags test)
+        run: |
+          export AIRFLOW__CORE__DAGS_FOLDER=$PWD/airflow/dags
+          export PLAYBOOK_PYTHON=$PWD/.venv/bin/python
+          /tmp/airflow-venv/bin/airflow db migrate
+          export API_URL=http://127.0.0.1:9   # no API running: the deploy step reports that and succeeds
+          /tmp/airflow-venv/bin/airflow dags test ins_mlops_pipeline 2>&1 | tee /tmp/dag.log
+          # A fresh clone has no model, so the run takes the train_model branch
+          grep "DagRun Finished" /tmp/dag.log | grep -q "state=success"
+          grep -q "running task <TaskInstance: ins_mlops_pipeline.train_model" /tmp/dag.log
+          cat experiments/models/evaluation_summary.json
