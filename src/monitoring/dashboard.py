@@ -3,6 +3,8 @@ import json
 import glob
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")  # render to images for st.pyplot (no GUI window; works off the main thread)
 import matplotlib.pyplot as plt
 from datetime import datetime
 import streamlit as st

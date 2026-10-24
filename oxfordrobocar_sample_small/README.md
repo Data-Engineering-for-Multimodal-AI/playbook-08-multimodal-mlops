@@ -23,7 +23,7 @@ Timestamps are UNIX time in microseconds (the file name of each sensor reading).
 | `mono_left/`, `mono_right/`, `mono_rear/` | 40 PNG frames each from the side and rear cameras | not used |
 | `lms_front/`, `lms_rear/` | 181 2D LiDAR scans each (`.bin`) | not used |
 | `ldmrs/` | 45 3D LiDAR scans (`.bin`) | not used |
-| `stereo.timestamps`, `mono_*.timestamps`, `lms_*.timestamps`, `ldmrs.timestamps` | the dataset's timestamp index for each sensor | not used |
+| `stereo.timestamps`, `mono_left.timestamps`, `mono_right.timestamps`, `mono_rear.timestamps`, `lms_front.timestamps`, `lms_rear.timestamps`, `ldmrs.timestamps` | the dataset's timestamp index for each sensor | not used |
 
 The camera frames cover 3.6 seconds of the 42-minute INS log, so only 15 INS windows have a camera
 frame within 0.1 s. That is why the model trains on the INS windows and the camera features are optional
