@@ -292,10 +292,10 @@ def inject_drift(imu_data_path: str,
         portion.set_index('datetime', inplace=True)
         
         # Resample to a faster frequency
-        portion = portion.resample('0.8S').mean().reset_index()
+        portion = portion.resample('800ms').mean().reset_index()
         
         # Convert back to microsecond timestamps
-        portion['timestamp'] = portion['datetime'].astype(np.int64) // 1000
+        portion['timestamp'] = portion['datetime'].dt.as_unit('us').astype(np.int64)
         
         # Remove the portion from the original dataframe
         drifted_df = pd.concat([drifted_df.iloc[:start_idx], drifted_df.iloc[end_idx:]])
