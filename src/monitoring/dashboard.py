@@ -34,7 +34,7 @@ def load_monitoring_data(monitoring_dir="experiments/monitoring"):
     
     # Load performance metrics
     perf_files = glob.glob(os.path.join(monitoring_dir, "performance", "performance_*.json"))
-    for f in sorted(perf_files):
+    for f in sorted(perf_files, key=os.path.getmtime):
         try:
             with open(f, 'r') as file:
                 metrics = json.load(file)
@@ -88,13 +88,15 @@ def display_prediction_stats(predictions_df):
     else:
         st.write("No prediction data available")
 
-def display_data_drift(data_drift_list):
+def display_data_drift(data_drift_list, drift_alerts=None):
     """Display data drift information."""
     st.subheader("Data Drift Monitoring")
     
     if not data_drift_list:
         st.write("No data drift information available")
         return
+    if drift_alerts is None:
+        drift_alerts = []
     
     # Convert to DataFrame for easier analysis
     drift_df = pd.DataFrame(data_drift_list)
@@ -126,8 +128,8 @@ def display_data_drift(data_drift_list):
     
     # Display drift alerts if any
     st.write("### Drift Alerts")
-    if "drift_alerts" in data and data["drift_alerts"]:
-        for alert in data["drift_alerts"]:
+    if drift_alerts:
+        for alert in drift_alerts:
             alert_time = datetime.fromisoformat(alert["timestamp"])
             st.write(f"⚠️ Drift detected at {alert_time.strftime('%Y-%m-%d %H:%M:%S')}")
             
@@ -158,13 +160,21 @@ def display_performance_metrics(performance_list):
         except:
             timestamps.append(None)
     
-    # Plot accuracy over time if we have multiple data points
+    # Plot accuracy (and F1, per labeled batch) over time if we have multiple data points
     if len(perf_df) > 1 and "accuracy" in perf_df.columns:
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.plot(range(len(perf_df)), perf_df["accuracy"], marker='o', label="Accuracy")
-        ax.set_xlabel("Evaluation point")
-        ax.set_ylabel("Accuracy")
-        ax.set_title("Model Accuracy Over Time")
+        if "f1" in perf_df.columns:
+            ax.plot(range(len(perf_df)), perf_df["f1"], marker='s', label="F1")
+        if "model_version" in perf_df.columns:
+            changes = perf_df.index[perf_df["model_version"].ne(perf_df["model_version"].shift())][1:]
+            for i in changes:
+                ax.axvline(i, color="gray", linestyle="--")
+                ax.annotate(f"v{perf_df['model_version'][i]}", (i, 1.0), xytext=(3, -12), textcoords="offset points")
+        ax.set_xlabel("Labeled batch")
+        ax.set_ylabel("Score")
+        ax.set_title("Model Performance Over Time (dashed line: a new model version)")
+        ax.legend()
         ax.grid(True)
         st.pyplot(fig)
     
@@ -198,7 +208,7 @@ with tab1:
     display_prediction_stats(data["predictions"])
 
 with tab2:
-    display_data_drift(data["data_drift"])
+    display_data_drift(data["data_drift"], data["drift_alerts"])
 
 with tab3:
     display_performance_metrics(data["performance"])
