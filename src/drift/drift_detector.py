@@ -83,7 +83,7 @@ def detect_drift(reference_data: pd.DataFrame,
             
             if metric == 'ks_test':
                 stat, p_value = compute_ks_test(reference_values, current_values)
-                feature_drift = p_value < threshold
+                feature_drift = bool(p_value < threshold)
                 drift_results[feature] = {
                     'metric': 'ks_test',
                     'statistic': float(stat),
@@ -93,7 +93,7 @@ def detect_drift(reference_data: pd.DataFrame,
                 }
             elif metric == 'wasserstein':
                 distance = compute_wasserstein_distance(reference_values, current_values)
-                feature_drift = distance > threshold
+                feature_drift = bool(distance > threshold)
                 drift_results[feature] = {
                     'metric': 'wasserstein',
                     'distance': float(distance),
@@ -293,7 +293,7 @@ def inject_drift(imu_data_path: str,
         portion.set_index('datetime', inplace=True)
         
         # Resample to a faster frequency
-        portion = portion.resample('800ms').mean().reset_index()
+        portion = portion.resample('800ms').mean(numeric_only=True).reset_index()
         
         # Convert back to microsecond timestamps
         portion['timestamp'] = portion['datetime'].dt.as_unit('us').astype(np.int64)

@@ -28,6 +28,15 @@ features:
     fft_components: 5
     ins_mode: true  # Using INS (velocity and orientation) instead of raw IMU data
 
+label:
+  # What the model predicts for each half-second INS window.
+  # 'turn_next_1s': will the car turn in the next horizon_sec seconds (heading changing faster than
+  #   yaw_rate_threshold)? Computed from the recorded heading after the window, so it is not an input.
+  # 'east_velocity': the first edition's synthetic label, velocity_east_mean > 7 m/s (an input feature).
+  name: 'turn_next_1s'
+  horizon_sec: 1.0
+  yaw_rate_threshold: 0.1  # rad/s, about 6 degrees per second
+
 alignment:
   output_path: 'experiments/aligned'
   window_size: 1.0  # seconds
@@ -37,6 +46,10 @@ alignment:
 model:
   type: 'xgboost'
   output_path: 'experiments/models'
+  registered_name: 'ins-turn-classifier'  # MLflow Model Registry name; the served version has the alias 'champion'
+  # The sample has 3 s of camera frames and 42 min of INS, so the model trains on INS windows.
+  # true appends the camera features (zeros and has_camera=0 where no frame is within max_time_diff).
+  use_video_features: false
   params:
     n_estimators: 100
     learning_rate: 0.1
@@ -51,6 +64,23 @@ drift:
   reference_path: 'experiments/drift/reference'
   monitor_features: ['velocity_north_mean', 'velocity_east_mean', 'velocity_down_mean', 'roll_mean', 'pitch_mean', 'yaw_mean']
 
+monitoring:
+  # Live monitoring compares each batch of served windows with the training data
+  batch_size: 100
+  monitor_features: ['velocity_north_std', 'velocity_east_std', 'velocity_down_std', 'roll_std', 'pitch_std', 'yaw_std']
+  drift_z_threshold: 2.0    # batch mean this many training standard deviations away: drift alert
+  severe_z_threshold: 3.0   # severe drift: the drift handler retrains
+  retrain_cooldown_batches: 2   # batches to wait between retraining attempts
+  holdout_batches: 2            # newest labeled batches, kept out of retraining to compare candidate and champion
+  sample_weight_recent: 5       # weight of labeled production windows relative to the original training windows
+
+simulation:
+  # Replay of the last part of the drive through the served model, with a sensor fault part way through
+  fault_start: 0.33   # fraction of the replay after which the INS readings get noisy
+  noise_scale: 0.1    # noise standard deviation, as a fraction of each channel's standard deviation
+  seed: 42
+
 mlflow:
-  tracking_uri: './experiments/mlruns'
+  # MLflow 3 no longer accepts new file-based stores ('./mlruns'); a local SQLite file works the same way
+  tracking_uri: 'sqlite:///experiments/mlflow.db'
   experiment_name: 'forge-multimodal-mlops' 

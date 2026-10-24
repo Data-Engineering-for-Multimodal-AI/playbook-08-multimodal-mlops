@@ -151,6 +151,9 @@ def align_features(video_features_path: Optional[str] = None,
     
     if imu_features_path is None:
         imu_features_path = os.path.join(get_param('features.output_path'), 'imu', 'imu_features.parquet')
+        if not os.path.exists(imu_features_path):
+            # Written by `python -m src.features.extract_ins_features`
+            imu_features_path = os.path.join(get_param('features.output_path'), 'ins', 'ins_features.parquet')
     
     if output_path is None:
         output_path = get_param('alignment.output_path')
@@ -228,7 +231,9 @@ def prepare_ml_dataset(aligned_features_path: Optional[str] = None,
         aligned_features_path = os.path.join(get_param('alignment.output_path'), 'aligned_features.parquet')
     
     if output_path is None:
-        output_path = os.path.join(get_param('alignment.output_path'), 'ml_dataset')
+        # The training dataset (ml_dataset) is now built from every INS window by
+        # src.models.dataset; this multimodal one has only the windows with a camera frame
+        output_path = os.path.join(get_param('alignment.output_path'), 'multimodal_dataset')
     
     # Create output directory
     os.makedirs(output_path, exist_ok=True)
