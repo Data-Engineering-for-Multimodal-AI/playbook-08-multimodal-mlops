@@ -1,6 +1,6 @@
 # Implementing an end-to-end MLOps pipeline
 
-**Chapter 8 playbook** from *Data Engineering for Multimodal AI* (O'Reilly, 2026). Page numbers to be confirmed.
+**Chapter 8 playbook** from *Data Engineering for Multimodal AI* (O'Reilly, 2026), pages 299–315 (Early Release page numbers; they may differ in the final print).
 Book: https://oreil.ly/data-engineering-multimodal
 
 > Want the code exactly as printed? Use the `first-edition` tag. This branch is the 2026 maintenance update; see [Differences from the printed book](#differences-from-the-printed-book).
@@ -80,6 +80,22 @@ python enhancements_modules/demo.py           # schema validation and the Parque
 
 `make smoke` runs the tests (unit tests and the whole pipeline; a few minutes).
 
+**The book's step-by-step commands (pages 300–306)** still work, in this order:
+
+```bash
+python -m src.ingest.video_ingest
+python -m src.ingest.ins_ingest
+python -m src.features.ins_features
+python -m src.features.video_features
+python -m src.align.temporal_alignment
+python -m src.models.train          # now builds the dataset from every INS window, then trains and registers
+python -m src.models.predict
+python -m src.serve.model_service
+python -m src.serve.client
+```
+
+`python -m src.serve.http_client` and `python -m src.monitoring.simulate_traffic` talk to the API, so start it first in another terminal: `uvicorn src.serve.api:app`.
+
 ### Orchestration with Airflow
 
 The DAG `airflow/dags/ins_mlops_pipeline.py` is written for Airflow 3 (tested with 3.3.2). Install Airflow in its own environment, using the constraints file for your Python version, and point the DAG at the playbook's Python:
@@ -119,15 +135,18 @@ No keys or accounts are needed.
 | Python | 3.12.15 (macOS); 3.12.3 and 3.13.17 (CI) |
 | Key packages | pandas 3.1.0, scikit-learn 1.9.1, XGBoost 3.4.1, MLflow 3.17.2, PyTorch 2.14.1 (CPU), FastAPI 0.162.0, Streamlit 1.66.1; Airflow 3.3.2 for the DAG (macOS and CI) |
 
-On the MacBook (fresh clone, Python 3.12.15): the three printed `pip install` lines took 87 s; `python pipeline/run_pipeline.py` took 126 s (INS features 41 s, camera ingest 24 s, ResNet-18 features 17 s with the weights already downloaded, training 14 s, the closed-loop replay 20 s). `make smoke` runs the tests, including the whole pipeline, in about 2 minutes.
+On the MacBook (fresh clone, Python 3.12.15): the three `pip install` lines above took 87 s; `python pipeline/run_pipeline.py` took 126 s (INS features 41 s, camera ingest 24 s, ResNet-18 features 17 s with the weights already downloaded, training 14 s, the closed-loop replay 20 s). `make smoke` runs the tests, including the whole pipeline, in about 2 minutes.
 
 ## Differences from the printed book
 
-| Printed book | This version | Why |
+The left column is the first edition: the code at the `first-edition` tag, which the book describes. Commands that changed still work unless the table says otherwise.
+
+| First edition | This version | Why |
 |---|---|---|
 | Python 3.8+ (conda, Python 3.9) | Python 3.12+ | Current libraries need it |
 | Unpinned `>=` requirements | Pinned versions (`requirements.txt`, `uv.lock`); `pipeline/requirements.txt` includes them | Reproducible installs |
 | `python pipeline/run_pipeline.py` stopped at step 2 and never exited | Runs every step once and exits; `--serve` keeps serving | Steps 2 and 3 called modules that weren't in the repository; now they are |
+| `python -m src.models.train` (p. 303) trained on the aligned dataset | Builds the dataset from every INS window if needed, then trains and registers the model (as `python -m src.models.train_model` does) | The training data changed (next row) |
 | Model trained on the 15 INS windows that have a camera frame; label: `velocity_east_mean > 7` (an input) | All 10,103 INS windows; label: a turn in the next second; split by time | 15 samples can't train or test a model; a label that is an input is learned trivially; overlapping windows leak across a random split. The old label: `label.name: east_velocity` |
 | Camera features always part of the model | Optional (`model.use_video_features`) | The sample has 3.6 s of camera frames in a 42-minute drive |
 | Camera frames read as grayscale | Demosaiced to color | They are raw Bayer sensor images |
@@ -136,9 +155,9 @@ On the MacBook (fresh clone, Python 3.12.15): the three printed `pip install` li
 | Served model: a fixed rule on `velocity_east` | The registered champion; `/predict` also accepts a window of readings | Serve the trained model |
 | Synthetic random monitoring data; drift checked against earlier batches | Replay of the end of the drive with a simulated sensor fault; drift checked against the model's training data; F1 per labeled batch | Shows the loop working on real data. `src/monitoring/force_monitoring_data.py` is still there |
 | Drift handler restarted the API with `pkill`/`uvicorn --reload` | Calls `/reload` on the API after a promotion | Don't kill other processes |
-| Airflow commands: `airflow db init`, `airflow users create`, `airflow webserver` | `airflow dags test`, `airflow standalone` | Removed in Airflow 3 |
+| Airflow commands (p. 311): `airflow db reset -y`, `db migrate`, `users create`, `api-server --port 8081`, `scheduler`, `dag-processor`, `triggerer`; log in as admin/admin | `airflow dags test`, `airflow standalone` | Airflow changed: in Airflow 3.3.2 `airflow users create` is not a command unless the FAB auth manager is installed ("invalid choice: 'users'", checked 2026-10-27), so there is no admin/admin user. `airflow standalone` creates an admin user and prints its password. The other printed commands still exist |
 | DAG: FileSensor and `airflow dags trigger` task | Removed | They weren't connected to the pipeline, kept each run open for 24 hours, and Airflow 3 tasks can't run CLI commands against the database |
-| Code in two copies (`pipeline/` and the root) | One copy at the root; `pipeline/` keeps the two printed entry points | The commands ran the root copy |
+| Code in two copies (`pipeline/` and the root) | One copy at the root; `pipeline/` keeps the two first-edition entry points | The commands ran the root copy |
 | `python -m pipeline.src.serve.simple_model_service` (troubleshooting) | `python -m src.serve.simple_model_service` | The copy is gone |
 | APIs listen on `0.0.0.0` | `127.0.0.1` unless `HOST` is set | Not reachable from the network by default |
 
@@ -155,7 +174,7 @@ The full list of fixes is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Expected output
 
-From `python pipeline/run_pipeline.py --port 59599` (a free port; the default is 8000) in a fresh clone after the printed `pip install` lines (2026-10-24, macOS 26.5.1 arm64, Python 3.12.15). The log lines of the individual steps are left out; times are local.
+From `python pipeline/run_pipeline.py --port 59599` (a free port; the default is 8000) in a fresh clone after the `pip install` lines above (2026-10-24, macOS 26.5.1 arm64, Python 3.12.15). The log lines of the individual steps are left out; times are local. This is the output of this version; it may differ from the output printed in the book, and that's okay.
 
 XGBoost's results differ slightly between platforms, and the loop can take a different path. In CI on Linux (Ubuntu 24.04, Python 3.12.3) the test F1 is 0.871, the retrained v2 and v3 lose to v1 on the newest batches and are kept out of service, v4 is promoted at batch 12, and F1 over the noisy period is 0.508 with the loop and 0.396 without.
 
@@ -251,7 +270,7 @@ How to read the replay:
 
 ```
 ├── run_pipeline.py                 # Runs the complete pipeline (python run_pipeline.py)
-├── pipeline/                       # The printed entry points: run_pipeline.py, requirements.txt
+├── pipeline/                       # The first-edition entry points: run_pipeline.py, requirements.txt
 ├── src/
 │   ├── ingest/                     # INS and camera ingestion
 │   ├── features/                   # INS window features, camera features
