@@ -35,7 +35,8 @@ def main(argv=None):
     dataset_dir = os.path.join(get_param('alignment.output_path'), 'ml_dataset')
     if not os.path.exists(os.path.join(dataset_dir, 'features.parquet')):
         if not os.path.exists(INS_FEATURES_PATH):
-            raise SystemExit("No INS features yet: run `python -m src.features.extract_ins_features` first")
+            from src.features.extract_ins_features import main as extract_ins_features
+            extract_ins_features()
         build_dataset()
 
     recent = None
