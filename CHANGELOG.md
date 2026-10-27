@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026.10.1 (2026-10-27)
+
+Checked against the book (Early Release, pages 299–315).
+
+### Fixed
+- The book's step-by-step run (pages 300–306) failed at `python -m src.models.train`, and so did the
+  commands after it: the 2026.10 update moved the training data to `ml_dataset`, built from every INS
+  window, and only `src.models.train_model` built it. `python -m src.models.train` now builds the
+  dataset and registers the model the same way. CI runs the step-by-step commands.
+
+### Changed
+- README: page numbers; the book's step-by-step commands; the Airflow commands printed on page 311
+  (`airflow users create` is not a command in Airflow 3.3.2 by default); the differences table's left
+  column is labelled as the first edition.
+
 ## 2026.10 (2026-10-24)
 
 Maintenance update for current Python and libraries. The code as printed in the book is tagged

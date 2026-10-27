@@ -256,4 +256,8 @@ def train_model(features_path: Optional[str] = None,
 
 
 if __name__ == "__main__":
-    train_model()
+    # The book's step-by-step run calls this module after the alignment step. The training data
+    # is now every INS window (src.models.dataset), so build it and register the model the same
+    # way `python -m src.models.train_model` does.
+    from src.models.train_model import main
+    main([])

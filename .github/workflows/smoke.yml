@@ -33,6 +33,17 @@ jobs:
           /tmp/pipenv/bin/python -m pip install -q -r pipeline/requirements.txt -r enhancements_modules/requirements-enhancements.txt
           /tmp/pipenv/bin/python -m pip install -q -e .
           /tmp/pipenv/bin/python pipeline/run_pipeline.py --port 18080
+      - name: The book's step-by-step commands (ingest, features, alignment, training, prediction, serving)
+        run: |
+          make clean-data
+          for step in src.ingest.video_ingest src.ingest.ins_ingest src.features.ins_features \
+                      src.features.video_features src.align.temporal_alignment src.models.train \
+                      src.models.predict src.serve.model_service src.serve.client; do
+            echo "::group::python -m $step"
+            /tmp/pipenv/bin/python -m $step 2>&1 | tee /tmp/step.log
+            echo "::endgroup::"
+            ! grep -qiE "Failed to load|Could not load a trained model" /tmp/step.log
+          done
 
   airflow:
     # The Airflow DAG with Airflow 3 in its own environment; the tasks use the playbook's Python
