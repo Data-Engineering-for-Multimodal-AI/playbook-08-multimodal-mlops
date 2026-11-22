@@ -1,4 +1,4 @@
-.PHONY: setup venv install-deps clean-env clean-data smoke test lint run-pipeline run-ingest run-features run-align run-train run-drift closed-loop serve dashboard mlflow-ui setup-uv run clean
+.PHONY: setup venv install-deps clean-env clean-data smoke test lint run-pipeline run-ingest run-features run-align run-train run-drift closed-loop serve dashboard mlflow-ui setup-uv run clean api predict models check-data load try-noise-level try-batch-size try-split
 
 # Uniform targets for The Playbooks: setup-uv, run, smoke and clean (uv, .venv).
 # The book's commands still work as printed: pip install -r pipeline/requirements.txt,
@@ -41,6 +41,43 @@ setup-uv:
 # evaluation, the model API, the drift-retrain-promote replay. The API stops when it finishes.
 run: setup-uv
 	uv run --frozen python pipeline/run_pipeline.py
+
+# The model API with uv (make serve does the same with the make setup environment).
+api: setup-uv
+	uv run --frozen uvicorn src.serve.api:app --host 127.0.0.1 --port 8000
+
+# With the API running: send half a second of the drive and compare with what happened.
+#   make predict MINUTE=37.5
+predict:
+	uv run --frozen python scripts/predict.py --minute $(or $(MINUTE),37.5)
+
+# The registered model versions and the champion (after make run)
+models:
+	uv run --frozen python scripts/models.py
+
+# Your own INS log: ins.csv (or gps/ins.csv) in DIR, in the Oxford RobotCar format.
+# check-data checks it and writes nothing; load runs the pipeline on it in experiments/own/<DIR name>/
+# with its own MLflow database. See README, "Use your own data".
+#   make check-data DIR=my_drive
+#   make load DIR=my_drive
+check-data:
+	@test -n "$(DIR)" || { echo "Usage: make check-data DIR=path/to/folder"; exit 2; }
+	uv run --frozen python scripts/own_drive.py --dir "$(DIR)" --check-only
+
+load:
+	@test -n "$(DIR)" || { echo "Usage: make load DIR=path/to/folder"; exit 2; }
+	uv run --frozen python scripts/own_drive.py --dir "$(DIR)"
+
+# Try this: three measured experiments (see README, "Try this"). They read what make run wrote
+# and change nothing. They live in try_this/ because make clean empties experiments/.
+try-noise-level: setup-uv
+	uv run --frozen python try_this/noise_level.py
+
+try-batch-size: setup-uv
+	uv run --frozen python try_this/batch_size.py
+
+try-split: setup-uv
+	uv run --frozen python try_this/split.py
 
 # Remove generated files: experiment outputs, logs and test caches. The sample data is kept.
 clean: clean-data

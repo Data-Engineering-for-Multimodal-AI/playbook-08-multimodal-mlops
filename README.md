@@ -7,9 +7,232 @@ Models trained on sensor data drift as conditions change, and catching that take
 
 **What you'll work with.** You'll build the MLOps lifecycle as code: validate schemas, detect drift, retrain automatically, and test every change in CI.
 
-> Want the code exactly as printed? Use the `first-edition` tag. This branch is the 2026 maintenance update; see [Differences from the printed book](#differences-from-the-printed-book).
+> Following the book? Its steps are in [Run it the way the book does](#run-it-the-way-the-book-does) and still work as printed. Want the code exactly as printed? Use the `first-edition` tag. This branch is the 2026 maintenance update; see [Differences from the printed book](#differences-from-the-printed-book).
 
-## What you'll build
+## Run it
+
+You need [uv](https://docs.astral.sh/uv/) and `make`. No Docker, no GPU, no API keys; the first run downloads the ResNet-18 weights (45 MB). Or open the repo in a GitHub Codespace, where uv and `make` are ready. On Windows without `make`, use a Codespace or the book's steps below.
+
+**1. Get the code.** The clone is about 376 MB, most of it the sample drive.
+
+```bash
+git clone https://github.com/Data-Engineering-for-Multimodal-AI/playbook-08-multimodal-mlops.git
+cd playbook-08-multimodal-mlops
+```
+
+**2. Run the whole pipeline.** Installs the locked dependencies (`uv sync`) and runs every step once (`python pipeline/run_pipeline.py`): INS features, camera ingest and features, alignment, training with MLflow, evaluation, the model API, and the replay of the end of the drive with a sensor fault, where monitoring raises drift alerts and the model is retrained and promoted. On a Mac this took 6 min 44 s while other jobs were running; on the same Mac with nothing else running it took 126 s (see [Tested on](#tested-on)).
+
+```bash
+make run
+```
+
+You should see, among the log lines:
+
+```
+Registered ins-turn-classifier version 1: test F1 0.880, accuracy 0.960 (2021 windows from the end of the drive)
+    7    36.6  noisy     6.1     v1    39  0.56       0.56  drift alert (velocity_north_std, velocity_east_std)
+    8    37.0  noisy     6.2     v1    18  0.32       0.32  drift alert (velocity_east_std, velocity_north_std); retrained v2: F1 0.49 vs 0.45 -> promoted
+F1 while the sensor is noisy: 0.503 with the loop, 0.439 if v1 had stayed in service
+Champion at the end: v2
+```
+
+[Expected output](#expected-output) shows the whole replay table and how to read it.
+
+**3. See the model versions.** Lists what the MLflow Model Registry holds after step 2 and which version carries the `champion` alias.
+
+```bash
+make models
+```
+
+```
+ins-turn-classifier: 2 version(s), champion v2
+
+version  trained on                         test F1  run
+     v1  the drive                            0.880  training_1795325546
+     v2  the drive + 100 production windows   0.882  retraining_1795325673     <- champion
+```
+
+The run names end in a timestamp, so yours differ. To browse the runs, parameters and metrics: `uv run mlflow ui --backend-store-uri sqlite:///experiments/mlflow.db`, then http://127.0.0.1:5000.
+
+**4. Ask the model.** Starts the model API on port 8000 (`uvicorn src.serve.api:app`). Leave it running.
+
+```bash
+make api
+```
+
+You should see `Application startup complete.` after about 20 s. In a second terminal, send it half a second of the drive (25 readings, as `POST /predict` with `{"readings": [...]}`) and compare its answer with what the car did next:
+
+```bash
+make predict MINUTE=36.4
+```
+
+```
+POST /predict with 25 readings from minute 36.40 (speed 4.6 m/s)
+  model v2: Turn ahead (probability of a turn 0.997)
+  what happened: Turn ahead (heading changed 0.334 rad/s in the next 1 s; a turn is over 0.1)
+```
+
+Not every answer is right. At `MINUTE=36.65` the model says `Driving straight` (probability 0.034) and the car turned: a gentle turn, 0.125 rad/s, just over the threshold. Try other minutes between 0 and 42. The API answers with the champion, v2 after step 2. Stop it with Ctrl+C.
+
+**5. Clean up.**
+
+```bash
+make clean
+```
+
+This deletes everything the pipeline wrote under `experiments/` (features, models, the MLflow database, monitoring, your own drives' folders) and `logs/`. The sample data and `.venv/` stay.
+
+## How much time do you have?
+
+| Time | What to do |
+|---|---|
+| 15 minutes | [Run it](#run-it), steps 1 to 4. On a Mac, step 2 took between 2 and 7 minutes depending on what else was running. |
+| 1 hour | The three [Try this](#try-this) experiments (5 minutes together on a busy Mac), then the MLflow UI and the dashboard (`uv run streamlit run src/monitoring/dashboard.py`). |
+| 1 day | [Use your own data](#use-your-own-data): run the loop on your own INS log, then work through [Before production](#before-production) and the Airflow DAG. |
+
+## Try this
+
+Each experiment changes one thing and measures the effect. They read what step 2 wrote and change nothing: no new model versions, no promotions. They are in `try_this/` because `make clean` empties `experiments/`. The numbers below are from a Mac on 2026-11-21.
+
+**1. How big a sensor fault does monitoring catch?** The replay adds noise of 0.1 times each channel's standard deviation from minute 36.5. This rebuilds the replayed stream with other noise levels and reports, without retraining, what monitoring sees and how the first model does.
+
+```bash
+make try-noise-level
+```
+
+```
+noise noisy batches with alert severe  max z F1 of v1 while noisy
+ 0.00            15          0      0    1.4              0.879
+ 0.02            15          0      0    1.9              0.514
+ 0.05            15         14      6    3.4              0.445
+ 0.10            15         15     14    6.7              0.439
+ 0.20            15         15     15   13.5              0.436
+```
+
+At 0.02, F1 drops from 0.879 to 0.514 and monitoring raises no alert: the drift score never passes 2. A small fault costs most of the accuracy before the input statistics move. Watching the F1 of labeled batches, which the monitor already computes, would have caught it. This took 3 min 25 s on a busy Mac.
+
+**2. How many windows should monitoring compare at a time?** The monitor compares batches of 100 windows (25 s of driving) with the training data. This counts false alerts on the fault-free part of the drive (the validation period and the replay before the fault) and how long the alerts take after the fault, for other batch sizes.
+
+```bash
+make try-batch-size
+```
+
+```
+batch size seconds   false alerts  false severe  first alert after fault  first severe after fault
+        25       6       5 of 107       0 of 107                       1 s                       1 s
+        50      12       1 of 54        0 of 54                        8 s                       8 s
+       100      25       0 of 27        0 of 27                        8 s                      33 s
+       200      50       0 of 14        0 of 14                       33 s                      33 s
+       400     100       0 of 7         0 of 7                        33 s                     133 s
+```
+
+Small batches react within seconds but raise false alerts; large ones are quiet and slow. With 100, a retraining alert comes 33 s after the fault starts. Change `monitoring.batch_size` or the z thresholds in `config/params.yaml`.
+
+**3. What does a random train/test split hide?** The pipeline splits the windows by time; the first edition split them at random. This trains the same XGBoost model both ways on the first 80% of the drive and compares the test F1 with the F1 on the last 20%, the minutes the model faces next.
+
+```bash
+make try-split
+```
+
+```
+split of the first 80% of the drive       test F1  F1 on the future
+random (first edition)                      0.943             0.882
+by time (this version)                      0.828             0.880
+
+Random split: 94% of the test windows have a training window that overlaps them by half (the next or previous window).
+```
+
+The random split promises 0.943 and delivers 0.882: almost every test window has an overlapping neighbor in the training set. The split by time gives a lower estimate (0.828) here, because minutes 25 to 34 are harder than the end of the drive, but it never tests on windows the model has seen. This took 9 s.
+
+## Use your own data
+
+Put an INS log in a folder:
+
+```
+my_drive/
+  ins.csv      (or gps/ins.csv, as in the Oxford RobotCar download)
+```
+
+One row per reading, with a header row. The pipeline needs these columns; others are ignored:
+
+| Column | Unit |
+|---|---|
+| `timestamp` | UNIX time in microseconds |
+| `velocity_north`, `velocity_east`, `velocity_down` | m/s |
+| `roll`, `pitch`, `yaw` | radians |
+
+Check it first. This reads the file and writes nothing:
+
+```bash
+make check-data DIR=my_drive
+```
+
+It reports every problem it finds and stops if there is any. On a test file (two minutes of the sample drive, thinned to 10 Hz, yaw converted to degrees, one row repeated at the end):
+
+```
+4 problem(s) in bad_drive; nothing was written:
+  ins.csv: timestamp: 1 duplicate value(s), first 1418381453659714
+  ins.csv: timestamp: goes backwards 1 time(s); sort the rows by time
+  ins.csv: 10.0 readings per second; needs at least 25 (the pipeline resamples to 50 Hz)
+  ins.csv: yaw: values up to 359.1; needs radians (degrees?)
+```
+
+It also checks for missing columns (the loader would fill them with empty values without a message), values that aren't numbers, columns more than 5% empty, timestamps in seconds or milliseconds, roll or pitch in degrees, speeds over 100 m/s, Git LFS pointers, and whether the drive is long enough and has both turns and straight driving in each of the training, validation and test periods (by time, 60/20/20). When everything passes, run the loop on it:
+
+```bash
+make load DIR=my_drive
+```
+
+This runs the pipeline in its own folder, `experiments/own/my_drive/`, with its own copy of `config/` and its own MLflow database, so the sample's models are not touched: features, training (`python -m src.models.train_model`), evaluation, and the replay with a sensor fault (`python -m src.monitoring.closed_loop`) on the last 20% of your drive. On a test drive of 15 minutes cut from the sample (minutes 5 to 20), this took 3 min 14 s on a busy Mac:
+
+```
+my_drive: 44999 readings, 15.0 minutes at 50 Hz. Turn windows by period: training 225 of 2156, validation 77 of 719, test 94 of 719. All checks passed.
+Working folder: experiments/own/my_drive/ (its own config/, experiments/ and MLflow database)
+Registered ins-turn-classifier version 1: test F1 0.837, accuracy 0.958 (720 windows from the end of the drive)
+...
+    4    13.7  noisy     5.8     v1    42  0.59       0.59  drift alert (velocity_east_std, velocity_north_std); retrained v2: F1 0.48 vs 0.37 -> promoted
+...
+F1 while the sensor is noisy: 0.269 with the loop, 0.269 if v1 had stayed in service
+MLflow runs and models: mlflow ui --backend-store-uri sqlite:///experiments/own/my_drive/experiments/mlflow.db
+```
+
+On this shorter drive the loop catches the fault and promotes a retrained v2, but the F1 while the sensor is noisy is the same with and without it: the replay is 3 minutes, and only 3 batches follow the promotion, two of them without a turn. The minutes in the replay table count from the start of your file.
+
+`make clean` deletes these folders too.
+
+## What you end up with
+
+A model lifecycle you can rerun on your own sensor log: features, a registered and evaluated model, a served API, and a monitoring loop that retrains and promotes, with measurements of when it notices a fault and when it doesn't.
+
+Skills you'll practice:
+- Building time-windowed features and labels from a sensor stream
+- Splitting time series by time, and measuring what a random split hides
+- Tracking runs and model versions in MLflow, with an alias for the served version
+- Detecting drift against a model's training data, and choosing batch sizes and thresholds
+- Retraining on new labeled data and promoting a model only when it does better
+- Validating a sensor log before it enters the pipeline
+
+## Before production
+
+This playbook runs on one machine with one recorded drive. Before you run something like it for real:
+
+1. **Alert on the model's errors, not only on its inputs.** With noise of 0.02 times each channel's standard deviation, F1 fell from 0.879 to 0.514 and no drift alert fired ([Try this 1](#try-this)). The monitor already scores every labeled batch; alert on that score too. *Chapter 10, "Detecting Drift" (page 384); Chapter 8, "Observability for Multimodal Systems" (page 287).*
+2. **Choose the batch size from your alert budget.** Batches of 25 windows raised 5 false alerts in 107 fault-free batches; batches of 400 waited 133 s before a retraining alert ([Try this 2](#try-this)). *Chapter 7, "Drift Types, Detection, and Engineering Response" (page 229).*
+3. **Split by time, and keep the future out of training.** A random split scored 0.943 on its test set and 0.882 on the minutes that followed ([Try this 3](#try-this)). *Chapter 8, "Testing and Validation for Multimodal Models" (page 286).*
+4. **Log metrics on data the model hasn't seen.** v2's logged test F1 (0.882, `make models`) is measured on the end of the drive, which includes the 100 production windows it was retrained on. The promotion decision uses held-out batches, but the registry's number doesn't. *Chapter 8, "Data Versioning and Experiment Tracking for Multimodal AI" (page 276).*
+5. **Promote on more evidence.** `evaluate_model` promotes a candidate whose F1 is higher on the 2 newest labeled batches (200 windows); v2 won 0.49 to 0.45. Run a candidate in shadow or as a canary first, and keep a rollback. *Chapter 10, "Canary Deployment" (page 397); Chapter 10, "Rollback" (page 400).*
+6. **Plan for labels that arrive late.** The replay labels each batch from the recorded heading right after serving it. Real ground truth comes later, and retraining has to wait for it. *Chapter 8, "Automated Retraining Pipelines for Multimodal AI" (page 279); Chapter 10, "Feedback Loops" (page 385).*
+7. **Validate data at ingestion.** `load_ins_data` fills missing columns with empty values, renames columns by position when the names don't match, and returns an empty table on any error. `make check-data` catches these; the pipeline itself doesn't stop. *Chapter 8, "Validation Architecture" (page 286).*
+8. **Lock down the API.** `POST /reload` and `POST /feedback` have no authentication: anyone who reaches the port can make the API reload its model or add labels. *Chapter 11, "Protecting Data Across the Pipeline" (page 421).*
+
+## What it costs
+
+| Where you run it | Cost |
+|---|---|
+| Your machine | $0. Everything runs locally: no API keys, no paid services. The environment is about 1.3 GB, the clone about 376 MB. |
+| A GitHub Codespace (2 cores, 8 GB, the default size; this repo asks for no larger one) | Estimated $0.18 per hour at GitHub's list price (November 2026). A free personal account includes 120 core-hours a month, about 60 hours on this machine. |
+
+## How it works
 
 An MLOps pipeline for a self-driving car's sensor data, on a real 42-minute drive through Oxford from the Oxford RobotCar dataset: inertial navigation (INS) readings at 50 Hz and forward camera frames. The pipeline keeps a model useful after deployment: when a sensor starts to degrade, monitoring notices, the model is retrained on fresh labeled data, and the new version replaces the old one only if it does better.
 
@@ -25,7 +248,9 @@ An MLOps pipeline for a self-driving car's sensor data, on a real 42-minute driv
 
 Everything runs on a laptop CPU with the bundled sample data.
 
-## Quick start
+## Run it the way the book does
+
+These are the book's steps (pages 294–311), as printed apart from the fixes listed in [Differences from the printed book](#differences-from-the-printed-book). [Run it](#run-it) above runs the same pipeline with `make`.
 
 You need Python 3.12 or newer and about 2 GB of disk space.
 
@@ -84,6 +309,8 @@ python enhancements_modules/demo.py           # schema validation and the Parque
 
 `make smoke` runs the tests (unit tests and the whole pipeline; a few minutes).
 
+`uv run pytest -q tests/test_own_data.py` checks the file checks behind `make check-data` (under a minute). `make models`, `make api`, `make predict`, `make check-data`, `make load` and `make try-*`: see [Run it](#run-it), [Try this](#try-this) and [Use your own data](#use-your-own-data).
+
 **The book's step-by-step commands (pages 295–301)** still work, in this order:
 
 ```bash
@@ -111,7 +338,7 @@ airflow-venv/bin/pip install "apache-airflow==3.3.2" \
 
 export AIRFLOW_HOME=$(pwd)/airflow
 export AIRFLOW__CORE__DAGS_FOLDER=$(pwd)/airflow/dags
-export PLAYBOOK_PYTHON=$(pwd)/venv/bin/python   # the environment from the Quick start
+export PLAYBOOK_PYTHON=$(pwd)/venv/bin/python   # the environment from the book's steps above
 
 airflow-venv/bin/airflow dags test ins_mlops_pipeline   # one run, no scheduler needed
 airflow-venv/bin/airflow standalone                     # or: the scheduler, API server and UI at http://localhost:8080
@@ -289,9 +516,11 @@ How to read the replay:
 ├── pipeline.yaml                   # Argo Workflows definition (needs a container image of this repository)
 ├── config/                         # params.yaml (pipeline settings), schema.yaml (data sources)
 ├── enhancements_modules/           # Pydantic schemas, Parquet feature store, demo
-├── tests/                          # Unit tests and smoke tests
+├── scripts/                        # models.py, predict.py (make models, make predict), own_drive.py (make check-data, make load)
+├── try_this/                       # make try-*: the three Try this experiments
+├── tests/                          # Unit tests, smoke tests, test_own_data.py
 ├── oxfordrobocar_sample_small/     # The sample drive (CC BY-NC-SA 4.0)
-├── experiments/                    # Outputs: features, models, MLflow database, monitoring
+├── experiments/                    # Outputs: features, models, MLflow database, monitoring; own/ for make load
 ├── notebooks/                      # Exploration notebook
 └── docs/                           # Architecture diagram
 ```

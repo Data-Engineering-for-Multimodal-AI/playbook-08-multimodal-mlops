@@ -5,6 +5,18 @@
 Nothing the book shows has changed.
 
 ### Added
+- `make models` lists the registered model versions and the champion (`scripts/models.py`); `make api` starts the
+  model API with uv, and `make predict MINUTE=...` sends it half a second of the drive and shows what really
+  happened (`scripts/predict.py`).
+- `make check-data DIR=...` and `make load DIR=...`: check your own INS log, then run training, evaluation and the
+  closed-loop replay on it in `experiments/own/<name>/` with its own MLflow database (`scripts/own_drive.py`,
+  `tests/test_own_data.py`).
+- Three measured experiments: `make try-noise-level`, `make try-batch-size`, `make try-split` (`try_this/`; not in
+  `experiments/`, which `make clean` empties).
+- README: numbered Run it steps, time tiers, Try this, Use your own data, What you end up with, Before production,
+  What it costs.
+- CI: runs the Run it steps with checks on their output, the three experiments and the own-data tests; the
+  devcontainer job prints the time to first output.
 - `make setup-uv`, `make run` and `make clean`. `make run` installs the locked dependencies with uv
   and runs the whole pipeline once on the sample data (`python pipeline/run_pipeline.py`), then
   exits. `make clean` runs `make clean-data` and removes test caches. `make setup`, `make serve`,
@@ -14,6 +26,8 @@ Nothing the book shows has changed.
   `make run` inside it.
 
 ### Changed
+- README: "What you'll build" is now "How it works". "Quick start" is now "Run it the way the book does", with the
+  same steps.
 - README opening: a title that says what you'll do, three sentences on why, the example and what you'll do, then the data engineering problem and what you'll work with.
 - Book page numbers now match the printed book (they were Early Release page numbers).
 - Renamed an unexplained project name, "forge", to "playbook-08": the `make setup` virtual

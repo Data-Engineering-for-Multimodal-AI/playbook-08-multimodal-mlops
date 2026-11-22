@@ -28,8 +28,39 @@ jobs:
           key: torch-resnet18
       - name: Smoke test
         run: make smoke
-      - name: One-command run
-        run: make run
+      # README "Run it", steps 2 to 4, as written
+      - name: Run it, step 2 (make run)
+        run: |
+          set -o pipefail
+          make run 2>&1 | tee /tmp/run.txt
+          grep -q "Registered ins-turn-classifier version 1: test F1" /tmp/run.txt
+          grep -q "F1 while the sensor is noisy:" /tmp/run.txt
+          grep -q "MLOps pipeline completed in" /tmp/run.txt
+      - name: Run it, steps 3 and 4 (make models, make api, make predict)
+        run: |
+          set -o pipefail
+          make models | tee /tmp/models.txt
+          grep -q "<- champion" /tmp/models.txt
+          make api > /tmp/api.log 2>&1 &
+          for i in $(seq 1 90); do curl -sf localhost:8000/health > /dev/null && break; sleep 2; done
+          make predict MINUTE=36.4 | tee /tmp/predict.txt
+          grep -qE "model v[0-9]+: (Turn ahead|Driving straight)" /tmp/predict.txt
+          grep -q "what happened: Turn ahead" /tmp/predict.txt
+          pkill -f "uvicorn src.serve.api:app" || true
+      - name: Use your own data (file checks)
+        run: uv run --frozen pytest -q tests/test_own_data.py
+      - name: Try this 1 to 3
+        run: |
+          set -o pipefail
+          make try-noise-level | tee /tmp/t1.txt
+          grep -qE "^ 0\.10 +15 " /tmp/t1.txt
+          make try-batch-size | tee /tmp/t2.txt
+          grep -qE "^ +100 +25 " /tmp/t2.txt
+          make try-split | tee /tmp/t3.txt
+          grep -q "random (first edition)" /tmp/t3.txt
+      - name: API log on failure
+        if: failure()
+        run: tail -50 /tmp/api.log || true
       - name: Printed install path and command (pip, pipeline/run_pipeline.py)
         run: |
           make clean-data
@@ -85,4 +116,5 @@ jobs:
         uses: devcontainers/ci@v0.3
         with:
           push: never
-          runCmd: make run
+          # The first output command, timed, as a reader would see it in a new Codespace
+          runCmd: start=$(date +%s) && make run && echo "Time to first output in a clean devcontainer was $(( $(date +%s) - start )) s"
