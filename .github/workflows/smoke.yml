@@ -33,7 +33,7 @@ jobs:
         run: |
           set -o pipefail
           make run 2>&1 | tee /tmp/run.txt
-          grep -q "Registered ins-turn-classifier version 1: test F1" /tmp/run.txt
+          grep -qE "Registered ins-turn-classifier version [0-9]+: test F1" /tmp/run.txt  # make smoke registered versions before
           grep -q "F1 while the sensor is noisy:" /tmp/run.txt
           grep -q "MLOps pipeline completed in" /tmp/run.txt
       - name: Run it, steps 3 and 4 (make models, make api, make predict)
