@@ -529,6 +529,8 @@ How to read the replay:
 
 Contributions are welcome! Please check out our [contribution guidelines](CONTRIBUTING.md).
 
+If this playbook helped you, a star helps other readers find it.
+
 ## License
 
 The code is licensed under the MIT License; see the [LICENSE](LICENSE) file. The sample data in `oxfordrobocar_sample_small/` is licensed separately under CC BY-NC-SA 4.0 (see [Data and licenses](#data-and-licenses)).
