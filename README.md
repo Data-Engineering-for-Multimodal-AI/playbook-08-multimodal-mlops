@@ -1,7 +1,11 @@
-# Implementing an end-to-end MLOps pipeline
+# Playbook 08: Build an MLOps pipeline that catches drift and retrains
+**How to build an end-to-end MLOps pipeline for multimodal sensor data.** Chapter 8 of [*Data Engineering for Multimodal AI*](https://oreil.ly/data-engineering-multimodal) (O'Reilly, 2026), pages 294–311.
 
-**Chapter 8 playbook** from *Data Engineering for Multimodal AI* (O'Reilly, 2026), pages 294–311.
-Book: https://oreil.ly/data-engineering-multimodal
+Models trained on sensor data drift as conditions change, and catching that takes a pipeline, not a one-off script. In this repo, we explore this with ForgeSense, a fictional robotics AI company, and a subset of the Oxford RobotCar dataset. Follow along to build ingestion, alignment, feature extraction, drift detection and automated retraining, with schema checks, tests and CI.
+
+**The problem.** A model that worked at launch slowly gets worse as the data changes, and someone has to notice and fix it.
+
+**What you'll work with.** You'll build the MLOps lifecycle as code: validate schemas, detect drift, retrain automatically, and test every change in CI.
 
 > Want the code exactly as printed? Use the `first-edition` tag. This branch is the 2026 maintenance update; see [Differences from the printed book](#differences-from-the-printed-book).
 
