@@ -91,7 +91,7 @@ def reset_monitoring() -> None:
 def quiet_component_logs() -> None:
     """The table below reports what happens; keep the components' own logs to errors."""
     for component in ["model_monitoring", "drift_handler", "model_service", "ins_features"]:
-        logging.getLogger(f"forge_pipeline.{component}").setLevel(logging.ERROR)
+        logging.getLogger(f"playbook_08_pipeline.{component}").setLevel(logging.ERROR)
 
 
 def run(api_url: str = None) -> Dict[str, Any]:
