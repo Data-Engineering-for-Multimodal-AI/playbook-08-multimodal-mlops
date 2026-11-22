@@ -1,7 +1,7 @@
 {
   "name": "Playbook 08: multimodal MLOps",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "onCreateCommand": "pip install --no-cache-dir uv==0.13.0",
+  "onCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0 && pip install --no-cache-dir uv==0.13.0",
   "postCreateCommand": "make setup-uv",
   "forwardPorts": [8000, 8501, 5000],
   "portsAttributes": {
