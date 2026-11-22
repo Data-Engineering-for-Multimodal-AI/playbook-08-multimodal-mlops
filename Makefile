@@ -1,7 +1,17 @@
-.PHONY: setup venv install-deps clean-env clean-data smoke test lint run-pipeline run-ingest run-features run-align run-train run-drift closed-loop serve dashboard mlflow-ui
+.PHONY: setup venv install-deps clean-env clean-data smoke test lint run-pipeline run-ingest run-features run-align run-train run-drift closed-loop serve dashboard mlflow-ui setup-uv run clean
+
+# Uniform targets for The Playbooks: setup-uv, run, smoke and clean (uv, .venv).
+# The book's commands still work as printed: pip install -r pipeline/requirements.txt,
+# pip install -r enhancements_modules/requirements-enhancements.txt, pip install -e .,
+# python pipeline/run_pipeline.py, and the nine step commands (python -m src.ingest.video_ingest,
+# src.ingest.ins_ingest, src.features.ins_features, src.features.video_features,
+# src.align.temporal_alignment, src.models.train, src.models.predict, src.serve.model_service,
+# src.serve.client).
+# `make setup` keeps its own pip virtual environment (playbook-08-env); the targets that use it
+# (test, lint, run-*, closed-loop, serve, dashboard, mlflow-ui) are unchanged.
 
 # Variables
-VENV_NAME := forge-env
+VENV_NAME := playbook-08-env
 PYTHON := python3
 PIP := pip3
 PROJECT_DIR := $(shell pwd)
@@ -22,6 +32,19 @@ install-deps:
 	@echo "Installing dependencies"
 	@$(VENV_PIP) install -r requirements.txt
 	@$(VENV_PIP) install pytest flake8 black
+
+# Install the locked dependencies into .venv with uv.
+setup-uv:
+	uv sync --frozen
+
+# Run the whole pipeline once on the sample data and exit: features, training with MLflow,
+# evaluation, the model API, the drift-retrain-promote replay. The API stops when it finishes.
+run: setup-uv
+	uv run --frozen python pipeline/run_pipeline.py
+
+# Remove generated files: experiment outputs, logs and test caches. The sample data is kept.
+clean: clean-data
+	rm -rf .pytest_cache
 
 # Smoke tests with uv (the whole pipeline on the sample data; a few minutes on CPU)
 smoke:

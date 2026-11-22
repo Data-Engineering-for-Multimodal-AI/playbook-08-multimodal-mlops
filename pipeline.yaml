@@ -1,16 +1,16 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: forge-multimodal-mlops-
+  generateName: playbook-08-multimodal-mlops-
 spec:
-  entrypoint: forge-pipeline
+  entrypoint: playbook-08-pipeline
   arguments:
     parameters:
     - name: simulate-drift
       value: "true"
   
   templates:
-  - name: forge-pipeline
+  - name: playbook-08-pipeline
     inputs:
       parameters:
       - name: simulate-drift
@@ -52,22 +52,22 @@ spec:
   
   - name: ingest-task
     container:
-      image: forge-multimodal-mlops:latest
+      image: playbook-08-multimodal-mlops:latest
       command: ["python", "-m", "src.ingest.video_ingest"]
     
   - name: feature-extraction-task
     container:
-      image: forge-multimodal-mlops:latest
+      image: playbook-08-multimodal-mlops:latest
       command: ["python", "-m", "src.features.video_features"]
   
   - name: alignment-task
     container:
-      image: forge-multimodal-mlops:latest
+      image: playbook-08-multimodal-mlops:latest
       command: ["python", "-m", "src.align.temporal_alignment"]
   
   - name: training-task
     container:
-      image: forge-multimodal-mlops:latest
+      image: playbook-08-multimodal-mlops:latest
       command: ["python", "-m", "src.models.train"]
   
   - name: drift-detection-task
@@ -80,7 +80,7 @@ spec:
         valueFrom:
           path: /tmp/drift-detected
     container:
-      image: forge-multimodal-mlops:latest
+      image: playbook-08-multimodal-mlops:latest
       command: ["/bin/bash", "-c"]
       args:
         - |
@@ -94,7 +94,7 @@ spec:
   
   - name: retraining-task
     container:
-      image: forge-multimodal-mlops:latest
+      image: playbook-08-multimodal-mlops:latest
       command: ["/bin/bash", "-c"]
       args:
         - |

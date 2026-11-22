@@ -53,6 +53,6 @@ def get_pipeline_logger(component: str) -> logging.Logger:
     os.makedirs(log_dir, exist_ok=True)
     
     log_file = os.path.join(log_dir, f"{component}.log")
-    logger = setup_logger(f"forge_pipeline.{component}", log_file=log_file)
+    logger = setup_logger(f"playbook_08_pipeline.{component}", log_file=log_file)
     
     return logger 

@@ -145,3 +145,6 @@ mlruns/
 
 # Local audit notes
 AUDIT.md
+
+# Virtual environment made by make setup
+playbook-08-env/

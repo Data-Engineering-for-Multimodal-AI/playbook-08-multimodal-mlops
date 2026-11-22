@@ -1,0 +1,16 @@
+{
+  "name": "Playbook 08: multimodal MLOps",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "onCreateCommand": "pip install --no-cache-dir uv==0.13.0",
+  "postCreateCommand": "make setup-uv",
+  "forwardPorts": [8000, 8501, 5000],
+  "portsAttributes": {
+    "8000": { "label": "Model API" },
+    "8501": { "label": "Monitoring dashboard" },
+    "5000": { "label": "MLflow UI" }
+  },
+  "customizations": {
+    "codespaces": { "openFiles": ["README.md"] },
+    "vscode": { "extensions": ["ms-python.python"] }
+  }
+}

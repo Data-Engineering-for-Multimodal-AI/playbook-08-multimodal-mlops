@@ -4,6 +4,8 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"   # weekly, Monday 06:00 UTC, so breakage in upstream packages shows up
 
 jobs:
   smoke:
@@ -26,6 +28,8 @@ jobs:
           key: torch-resnet18
       - name: Smoke test
         run: make smoke
+      - name: One-command run
+        run: make run
       - name: Printed install path and command (pip, pipeline/run_pipeline.py)
         run: |
           make clean-data
@@ -71,3 +75,14 @@ jobs:
           grep "DagRun Finished" /tmp/dag.log | grep -q "state=success"
           grep -q "running task <TaskInstance: ins_mlops_pipeline.train_model" /tmp/dag.log
           cat experiments/models/evaluation_summary.json
+
+  devcontainer:
+    # Builds .devcontainer/ the way Codespaces does and runs the playbook inside it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the devcontainer and run the playbook
+        uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: make run

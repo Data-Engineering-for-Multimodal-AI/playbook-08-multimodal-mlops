@@ -83,4 +83,4 @@ simulation:
 mlflow:
   # MLflow 3 no longer accepts new file-based stores ('./mlruns'); a local SQLite file works the same way
   tracking_uri: 'sqlite:///experiments/mlflow.db'
-  experiment_name: 'forge-multimodal-mlops' 
+  experiment_name: 'playbook-08-multimodal-mlops' 

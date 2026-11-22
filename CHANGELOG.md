@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased (v1.1.0)
+
+Nothing the book shows has changed.
+
+### Added
+- `make setup-uv`, `make run` and `make clean`. `make run` installs the locked dependencies with uv
+  and runs the whole pipeline once on the sample data (`python pipeline/run_pipeline.py`), then
+  exits. `make clean` runs `make clean-data` and removes test caches. `make setup`, `make serve`,
+  `make smoke` and the other existing targets are unchanged.
+- `.devcontainer/` so the repo opens in GitHub Codespaces with dependencies installed.
+- CI: a weekly scheduled run, a `make run` step, and a job that builds the devcontainer and runs
+  `make run` inside it.
+
+### Changed
+- Renamed an unexplained project name, "forge", to "playbook-08": the `make setup` virtual
+  environment (`playbook-08-env`), the MLflow experiment name (`playbook-08-multimodal-mlops`), the
+  Argo Workflow and image names in `pipeline.yaml`, and the component logger names.
+
 ## 2026.10.1 (2026-10-27)
 
 Checked against the book (Early Release, pages 299–315).
