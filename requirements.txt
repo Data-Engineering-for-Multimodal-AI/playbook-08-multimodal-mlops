@@ -62,10 +62,10 @@ narwhals==2.27.1
 networkx==3.7
 numpy==2.5.4
 opencv-python-headless==5.0.0.93
-opentelemetry-api==1.45.1
+opentelemetry-api==1.45.2
 opentelemetry-proto==1.45.1
-opentelemetry-sdk==1.45.1
-opentelemetry-semantic-conventions==0.66b1
+opentelemetry-sdk==1.45.2
+opentelemetry-semantic-conventions==0.66b2
 packaging==26.3
 pandas==3.1.0
 pillow==13.0.0
@@ -73,7 +73,7 @@ prettytable==3.18.0
 propcache==0.5.4
 protobuf==7.36.2
 pyarrow==25.0.1
-pyasn1==0.6.4
+pyasn1==0.6.5
 pyasn1-modules==0.4.2
 pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
 pydantic==2.14.1
