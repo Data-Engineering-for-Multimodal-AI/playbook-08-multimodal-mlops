@@ -14,6 +14,7 @@ Nothing the book shows has changed.
   `make run` inside it.
 
 ### Changed
+- Book page numbers now match the printed book (they were Early Release page numbers).
 - Renamed an unexplained project name, "forge", to "playbook-08": the `make setup` virtual
   environment (`playbook-08-env`), the MLflow experiment name (`playbook-08-multimodal-mlops`), the
   Argo Workflow and image names in `pipeline.yaml`, and the component logger names.

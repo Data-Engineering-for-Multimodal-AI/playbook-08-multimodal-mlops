@@ -1,6 +1,6 @@
 # Implementing an end-to-end MLOps pipeline
 
-**Chapter 8 playbook** from *Data Engineering for Multimodal AI* (O'Reilly, 2026), pages 299–315 (Early Release page numbers; they may differ in the final print).
+**Chapter 8 playbook** from *Data Engineering for Multimodal AI* (O'Reilly, 2026), pages 294–311.
 Book: https://oreil.ly/data-engineering-multimodal
 
 > Want the code exactly as printed? Use the `first-edition` tag. This branch is the 2026 maintenance update; see [Differences from the printed book](#differences-from-the-printed-book).
@@ -80,7 +80,7 @@ python enhancements_modules/demo.py           # schema validation and the Parque
 
 `make smoke` runs the tests (unit tests and the whole pipeline; a few minutes).
 
-**The book's step-by-step commands (pages 300–306)** still work, in this order:
+**The book's step-by-step commands (pages 295–301)** still work, in this order:
 
 ```bash
 python -m src.ingest.video_ingest
@@ -146,7 +146,7 @@ The left column is the first edition: the code at the `first-edition` tag, which
 | Python 3.8+ (conda, Python 3.9) | Python 3.12+ | Current libraries need it |
 | Unpinned `>=` requirements | Pinned versions (`requirements.txt`, `uv.lock`); `pipeline/requirements.txt` includes them | Reproducible installs |
 | `python pipeline/run_pipeline.py` stopped at step 2 and never exited | Runs every step once and exits; `--serve` keeps serving | Steps 2 and 3 called modules that weren't in the repository; now they are |
-| `python -m src.models.train` (p. 303) trained on the aligned dataset | Builds the dataset from every INS window if needed, then trains and registers the model (as `python -m src.models.train_model` does) | The training data changed (next row) |
+| `python -m src.models.train` (p. 298) trained on the aligned dataset | Builds the dataset from every INS window if needed, then trains and registers the model (as `python -m src.models.train_model` does) | The training data changed (next row) |
 | Model trained on the 15 INS windows that have a camera frame; label: `velocity_east_mean > 7` (an input) | All 10,103 INS windows; label: a turn in the next second; split by time | 15 samples can't train or test a model; a label that is an input is learned trivially; overlapping windows leak across a random split. The old label: `label.name: east_velocity` |
 | Camera features always part of the model | Optional (`model.use_video_features`) | The sample has 3.6 s of camera frames in a 42-minute drive |
 | Camera frames read as grayscale | Demosaiced to color | They are raw Bayer sensor images |
@@ -155,7 +155,7 @@ The left column is the first edition: the code at the `first-edition` tag, which
 | Served model: a fixed rule on `velocity_east` | The registered champion; `/predict` also accepts a window of readings | Serve the trained model |
 | Synthetic random monitoring data; drift checked against earlier batches | Replay of the end of the drive with a simulated sensor fault; drift checked against the model's training data; F1 per labeled batch | Shows the loop working on real data. `src/monitoring/force_monitoring_data.py` is still there |
 | Drift handler restarted the API with `pkill`/`uvicorn --reload` | Calls `/reload` on the API after a promotion | Don't kill other processes |
-| Airflow commands (p. 311): `airflow db reset -y`, `db migrate`, `users create`, `api-server --port 8081`, `scheduler`, `dag-processor`, `triggerer`; log in as admin/admin | `airflow dags test`, `airflow standalone` | Airflow changed: in Airflow 3.3.2 `airflow users create` is not a command unless the FAB auth manager is installed ("invalid choice: 'users'", checked 2026-10-27), so there is no admin/admin user. `airflow standalone` creates an admin user and prints its password. The other printed commands still exist |
+| Airflow commands (p. 307): `airflow db reset -y`, `db migrate`, `users create`, `api-server --port 8081`, `scheduler`, `dag-processor`, `triggerer`; log in as admin/admin | `airflow dags test`, `airflow standalone` | Airflow changed: in Airflow 3.3.2 `airflow users create` is not a command unless the FAB auth manager is installed ("invalid choice: 'users'", checked 2026-10-27), so there is no admin/admin user. `airflow standalone` creates an admin user and prints its password. The other printed commands still exist |
 | DAG: FileSensor and `airflow dags trigger` task | Removed | They weren't connected to the pipeline, kept each run open for 24 hours, and Airflow 3 tasks can't run CLI commands against the database |
 | Code in two copies (`pipeline/` and the root) | One copy at the root; `pipeline/` keeps the two first-edition entry points | The commands ran the root copy |
 | `python -m pipeline.src.serve.simple_model_service` (troubleshooting) | `python -m src.serve.simple_model_service` | The copy is gone |
