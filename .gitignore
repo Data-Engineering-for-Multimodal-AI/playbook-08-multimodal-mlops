@@ -148,3 +148,6 @@ AUDIT.md
 
 # Virtual environment made by make setup
 playbook-08-env/
+
+# written by a passing `make run`; read by `make card` in the .github repo
+.playbook-done

@@ -403,6 +403,8 @@ The full list of fixes is in [CHANGELOG.md](CHANGELOG.md).
 
 [`oxfordrobocar_sample_small/README.md`](oxfordrobocar_sample_small/README.md) lists every file and which ones the code uses. The code is MIT-licensed (see [LICENSE](LICENSE)).
 
+The full list, with sources, licenses and citations, is in [DATA_LICENSES.md](DATA_LICENSES.md).
+
 ## Expected output
 
 From `python pipeline/run_pipeline.py --port 59599` (a free port; the default is 8000) in a fresh clone after the `pip install` lines above (2026-10-24, macOS 26.5.1 arm64, Python 3.12.15). The log lines of the individual steps are left out; times are local. This is the output of this version; it may differ from the output printed in the book, and that's okay.
