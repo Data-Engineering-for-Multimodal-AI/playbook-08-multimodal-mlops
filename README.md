@@ -1,5 +1,15 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/header-dark.png">
+  <img src="docs/img/header-light.png" alt="Playbook 08 of 12, Chapter 8 of Data Engineering for Multimodal AI. Build: an MLOps pipeline that retrains on drift. Data: camera frames and INS motion data." width="100%">
+</picture>
+
 # Playbook 08: Build an MLOps pipeline that catches drift and retrains
 **How to build an end-to-end MLOps pipeline for multimodal sensor data.** Chapter 8 of [*Data Engineering for Multimodal AI*](https://oreil.ly/data-engineering-multimodal) (O'Reilly, 2026), pages 294–311.
+
+[![Tests](https://github.com/Data-Engineering-for-Multimodal-AI/playbook-08-multimodal-mlops/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/Data-Engineering-for-Multimodal-AI/playbook-08-multimodal-mlops/actions/workflows/smoke.yml)
+![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-1f1a19?labelColor=6b6361)
+[![License: MIT](https://img.shields.io/badge/license-MIT-1f1a19?labelColor=6b6361)](LICENSE)
+[![Open in GitHub Codespaces](https://img.shields.io/badge/Open%20in-Codespaces-b4422e?logo=github&labelColor=6b6361)](https://codespaces.new/Data-Engineering-for-Multimodal-AI/playbook-08-multimodal-mlops?quickstart=1)
 
 Models trained on sensor data drift as conditions change, and catching that takes a pipeline, not a one-off script. In this repo, we explore this with ForgeSense, a fictional robotics AI company, and a subset of the Oxford RobotCar dataset. Follow along to build ingestion, alignment, feature extraction, drift detection and automated retraining, with schema checks, tests and CI.
 
@@ -234,6 +244,18 @@ This playbook runs on one machine with one recorded drive. Before you run someth
 
 ## How it works
 
+```mermaid
+flowchart LR
+  A["Oxford RobotCar drive<br/>INS at 50 Hz, camera frames"] --> B["Features and alignment<br/>INS windows, ResNet-18 embeddings"]
+  B --> C["Training<br/>XGBoost, MLflow registry"]
+  C --> D["Serving<br/>FastAPI, champion model"]
+  D --> E["Drift monitor<br/>batches vs training data"]
+  E -->|severe drift| F["Retrain and compare<br/>promote if F1 is higher"]
+  F --> D
+  classDef key fill:#ffe8e3,stroke:#b4422e,color:#1f1a19
+  class E key
+```
+
 An MLOps pipeline for a self-driving car's sensor data, on a real 42-minute drive through Oxford from the Oxford RobotCar dataset: inertial navigation (INS) readings at 50 Hz and forward camera frames. The pipeline keeps a model useful after deployment: when a sensor starts to degrade, monitoring notices, the model is retrained on fresh labeled data, and the new version replaces the old one only if it does better.
 
 - **Feature engineering**: half-second windows of INS readings (velocity, roll, pitch, heading) with statistical and frequency features; camera frames demosaiced from the raw sensor and described by color histograms and ResNet-18 embeddings
@@ -403,7 +425,7 @@ The full list of fixes is in [CHANGELOG.md](CHANGELOG.md).
 
 [`oxfordrobocar_sample_small/README.md`](oxfordrobocar_sample_small/README.md) lists every file and which ones the code uses. The code is MIT-licensed (see [LICENSE](LICENSE)).
 
-The full list, with sources, licenses and citations, is in [DATA_LICENSES.md](DATA_LICENSES.md).
+The full list, with sources, licenses and citations, is in [DATA_SOURCES.md](DATA_SOURCES.md).
 
 ## Expected output
 
@@ -542,3 +564,8 @@ The code is licensed under the MIT License; see the [LICENSE](LICENSE) file. The
 - Oxford Robotics Institute for providing the RobotCar dataset
 - Apache Airflow team for their excellent workflow orchestration framework
 - The MLOps community for best practices and inspiration
+
+---
+
+[The book](https://oreil.ly/data-engineering-multimodal) · [All playbooks](https://github.com/Data-Engineering-for-Multimodal-AI#playbooks) · Previous: [Playbook 07](https://github.com/Data-Engineering-for-Multimodal-AI/playbook-07-multimodal-inference-router) · Next: [Playbook 09](https://github.com/Data-Engineering-for-Multimodal-AI/playbook-09-multimodal-scaling-benchmarks)
+<!-- Substack post for this playbook: add link here -->
