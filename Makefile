@@ -41,6 +41,7 @@ setup-uv:
 # evaluation, the model API, the drift-retrain-promote replay. The API stops when it finishes.
 run: setup-uv
 	uv run --frozen python pipeline/run_pipeline.py
+	@echo "playbook-08-multimodal-mlops" > .playbook-done
 
 # The model API with uv (make serve does the same with the make setup environment).
 api: setup-uv
